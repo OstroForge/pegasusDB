@@ -7,6 +7,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+# Cloud-only .pyc files in this OneDrive folder can hang Python on import.
+if (-not $env:PYTHONPYCACHEPREFIX) {
+    $env:PYTHONPYCACHEPREFIX = Join-Path $env:LOCALAPPDATA "pegasusDB-pyc"
+}
+
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     Write-Error "Virtual environment Python not found at $venvPython. Create it with: py -m venv .venv"

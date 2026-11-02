@@ -2,9 +2,10 @@
 setlocal
 cd /d "%~dp0"
 
-if not exist .venv (
-  py -m venv .venv
-)
+call "%~dp0scripts\ensure-venv.bat"
+if errorlevel 1 exit /b 1
+REM Bytecode stays outside OneDrive. Cloud-only .pyc files hang Python on import.
+set PYTHONPYCACHEPREFIX=%LOCALAPPDATA%\pegasusDB-pyc
 
 rem Stop orphan pollers left behind by Ctrl+C (Windows often keeps python.exe running)
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name = 'python.exe'\" | Where-Object { $_.CommandLine -match 'manage.py telegram_poll' -and $_.CommandLine -match 'pegasusDB' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"

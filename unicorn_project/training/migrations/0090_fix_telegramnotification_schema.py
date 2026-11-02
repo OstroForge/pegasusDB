@@ -8,7 +8,7 @@ def _table_exists(connection, table_name):
             return cursor.fetchone()[0] is not None
         if connection.vendor == "sqlite":
             cursor.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=%s",
                 [table_name],
             )
             return cursor.fetchone() is not None
