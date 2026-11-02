@@ -683,14 +683,14 @@
   {% if has_exam %}
   <!-- Pane: Exams (only when course type has exams) -->
   <div class="tab-pane fade booking-pane booking-pane--exams{% if active_tab == 'exams' %} show active{% endif %}" id="exams-pane" role="tabpanel" aria-labelledby="exams-tab" tabindex="0">
-     <div id="exams-refresh-indicator" class="text-end small text-muted" style="opacity:0; transition:opacity .25s;">Updating…</div>
+     <div id="exams-refresh-indicator" class="text-end small text-muted mb-1">Waiting for first refresh…</div>
 
     {% if course_exams %}
 
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
         <div class="alert alert-info py-2 small mb-0" style="font-size:0.85rem;">
-          <strong>Note:</strong> Live exam results refresh automatically when you are not interacting with this section.<br>
-          Move your mouse away from the table to allow refreshing.
+          <strong>Note:</strong> Exam results on this tab refresh every few seconds while it is open.
+          An open viva or retest panel pauses updates until you close it.
         </div>
         <a class="btn btn-sm btn-outline-secondary"
            href="{% url 'instructor_exams_summary_pdf' booking.id %}"
@@ -1543,13 +1543,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function isUserInteracting() {
     if (examsPane.querySelector('.exam-detail-row:not(.d-none)')) return true;
-    if (examsPane.matches(':hover')) return true;
     var ae = document.activeElement;
-    return !!(ae && examsPane.contains(ae));
+    if (!ae || !examsPane.contains(ae)) return false;
+    return /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
   }
 
-  function showIndicator(on) {
-    if (indicator) indicator.style.opacity = on ? '1' : '0';
+  function resultsMarkup(root) {
+    var clone = root.cloneNode(true);
+    clone.querySelectorAll('.exam-time-left').forEach(function (el) {
+      el.textContent = '';
+    });
+    return clone.innerHTML.trim();
+  }
+
+  function formatClock(date) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function setRefreshStatus(text) {
+    if (indicator) indicator.textContent = text;
   }
 
   async function refreshExams() {
@@ -1557,7 +1569,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (isUserInteracting() && !window.__examDetailForceRefresh) return;
 
     console.log('[ExamsRefresh] refreshing…');
-    showIndicator(true);
+    setRefreshStatus('Checking…');
     window.__examDetailForceRefresh = false;
 
     try {
@@ -1570,14 +1582,20 @@ document.addEventListener('DOMContentLoaded', function () {
         }
       );
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        setRefreshStatus('Refresh failed');
+        return;
+      }
 
       var html = await res.text();
       var tmp = document.createElement('div');
       tmp.innerHTML = html;
 
       var freshPane = tmp.querySelector('#exams-pane');
-      if (!freshPane) return;
+      if (!freshPane) {
+        setRefreshStatus('Refresh failed');
+        return;
+      }
 
       var freshSections = freshPane.querySelectorAll('.accordion-collapse[id^="ex-c-"]');
       var changed = false;
@@ -1591,9 +1609,8 @@ document.addEventListener('DOMContentLoaded', function () {
         var currBody  = currentSection.querySelector('.accordion-body');
 
         if (freshBody && currBody) {
-          var freshHTML = freshBody.innerHTML.trim();
-          if (currBody.innerHTML.trim() !== freshHTML) {
-            currBody.innerHTML = freshHTML;
+          if (resultsMarkup(currBody) !== resultsMarkup(freshBody)) {
+            currBody.innerHTML = freshBody.innerHTML;
             changed = true;
           }
         }
@@ -1606,11 +1623,11 @@ document.addEventListener('DOMContentLoaded', function () {
         startExamCountdowns();
       }
 
+      setRefreshStatus('Last refresh ' + formatClock(new Date()));
       console.log('[ExamsRefresh] done' + (changed ? ' (content updated)' : ' (no changes)'));
     } catch (e) {
       console.log('[ExamsRefresh] error:', e);
-    } finally {
-      setTimeout(function(){ showIndicator(false); }, 300);
+      setRefreshStatus('Refresh failed');
     }
   }
 
@@ -1635,6 +1652,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   start();
   startExamCountdowns();
+  refreshExams();
 
   if (examsTabBtn) {
     examsTabBtn.addEventListener('shown.bs.tab', refreshExams);

@@ -36,7 +36,7 @@ def _table_exists(connection, table_name):
             return cursor.fetchone()[0] is not None
         if connection.vendor == "sqlite":
             cursor.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=%s",
                 [table_name],
             )
             return cursor.fetchone() is not None
@@ -114,20 +114,14 @@ def apply_telegram_integration(apps, schema_editor):
         elif connection.vendor == "sqlite":
             schema_editor.execute(sqlite_sql)
 
+    # This runs before TelegramNotification is in the migration state, so the
+    # table is created or rebuilt later by 0090_fix_telegramnotification_schema.
     if not _table_exists(connection, "training_telegramnotification"):
-        TelegramNotification = apps.get_model("training", "TelegramNotification")
-        schema_editor.create_model(TelegramNotification)
         return
 
     columns = _notification_columns(connection)
     if "personnel_id" not in columns:
-        with connection.cursor() as cursor:
-            if connection.vendor == "postgresql":
-                cursor.execute("DROP TABLE training_telegramnotification CASCADE")
-            elif connection.vendor == "sqlite":
-                cursor.execute("DROP TABLE training_telegramnotification")
-        TelegramNotification = apps.get_model("training", "TelegramNotification")
-        schema_editor.create_model(TelegramNotification)
+        return
 
 
 class Migration(migrations.Migration):

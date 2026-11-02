@@ -107,6 +107,10 @@ if _is_postgres(DB_URL):
 else:
     sqlite_url = DB_URL or f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
     DATABASES = {"default": dj_database_url.parse(sqlite_url, conn_max_age=0)}
+    # SQLite cannot create the file when the parent folder is missing.
+    _sqlite_name = DATABASES["default"].get("NAME")
+    if isinstance(_sqlite_name, str) and _sqlite_name not in ("", ":memory:"):
+        Path(_sqlite_name).expanduser().parent.mkdir(parents=True, exist_ok=True)
 
 # ----- APIs ------------------------
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
