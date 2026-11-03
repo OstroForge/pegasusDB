@@ -220,6 +220,11 @@
       var el = e.target.closest("[data-confirm]");
       if (!el) return;
 
+      // data-confirm on a <form> is handled by the submit listener. Stopping the
+      // click here (the button, or an icon inside it) cancels the submit, so the
+      // dialog can appear and then do nothing.
+      if (el.tagName === "FORM") return;
+
       // Booking accident-report buttons confirm and submit in their own handler.
       if (el.classList.contains("js-accident-report-bulk")) return;
 
