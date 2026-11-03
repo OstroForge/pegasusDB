@@ -449,7 +449,7 @@
 
   <!-- Pane: Course days / registers -->
   <div class="tab-pane fade booking-pane booking-pane--days{% if active_tab == 'days' %} show active{% endif %}" id="days-pane" role="tabpanel" aria-labelledby="days-tab" tabindex="0">
-    <div id="days-refresh-indicator" class="text-end small text-muted" style="opacity:0; transition:opacity .25s;">Updating…</div>
+    <div id="days-refresh-indicator" class="text-end small text-muted mb-1">Waiting for first refresh…</div>
 
     <form method="post" class="mb-3">
       {% csrf_token %}
@@ -501,9 +501,18 @@
                 </td>
                 <td class="text-center"><span class="badge bg-secondary">{{ d.n }}</span></td>
                 <td class="text-end">
-                  <a class="btn btn-outline-primary btn-sm" href="{{ d.edit_url }}">
-                    <i class="bi bi-people"></i> View / edit in tab
-                  </a>
+                  <div class="d-flex flex-column align-items-end gap-1">
+                    <a class="btn btn-outline-primary btn-sm" href="{{ d.edit_url }}">
+                      <i class="bi bi-people"></i> View / edit
+                    </a>
+                    {% if d.can_copy and not is_locked and booking.status != 'cancelled' %}
+                      <button type="submit"
+                              form="copy-prev-{{ d.id }}"
+                              class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-clipboard"></i> Copy from {{ d.previous_date|date:"j M" }}
+                      </button>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
                 {% if d.warn %}
@@ -525,6 +534,22 @@
       </div>
     </form>
 
+    {% if not is_locked and booking.status != 'cancelled' %}
+      {% for d in day_rows %}
+        {% if d.can_copy %}
+          <form id="copy-prev-{{ d.id }}"
+                method="post"
+                action="{% url 'instructor_copy_previous_day_registers' d.id %}"
+                data-confirm="Copy delegates from {{ d.previous_date|date:'j M Y' }} onto {{ d.date|date:'j M Y' }}? Anyone already on this day is left unchanged. Health, notes and results are not copied."
+                data-confirm-label="Copy delegates"
+                data-confirm-danger="0">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ d.edit_url }}">
+          </form>
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+
     {% if selected_day %}
       <div class="card mt-3" id="selected-day-register-panel">
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -533,6 +558,20 @@
             <span class="text-muted ms-2">Manage submissions without leaving this booking.</span>
           </div>
           <div class="d-flex gap-2 flex-wrap">
+            {% if can_copy_selected and not is_locked and booking.status != 'cancelled' %}
+              <form method="post"
+                    action="{% url 'instructor_copy_previous_day_registers' selected_day.pk %}"
+                    class="d-inline"
+                    data-confirm="Copy delegates from {{ previous_day.date|date:'j M Y' }} onto this day? Anyone already listed is left unchanged. Health, notes and results are not copied."
+                    data-confirm-label="Copy delegates"
+                    data-confirm-danger="0">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ selected_day_back_url }}">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                  <i class="bi bi-clipboard"></i> Copy from {{ previous_day.date|date:"j M Y" }}
+                </button>
+              </form>
+            {% endif %}
             <a class="btn btn-outline-primary btn-sm" href="{{ selected_day_add_url }}">
               <i class="bi bi-person-plus"></i> Add delegate
             </a>
@@ -607,37 +646,49 @@
     function isPaneActive() {
       return daysPane.classList.contains('active') && daysPane.classList.contains('show');
     }
-    function isUserInteracting() {
-      if (daysPane.matches(':hover')) return true;
-      var ae = document.activeElement;
-      return !!(ae && daysPane.contains(ae));
+    function formatClock(date) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
-    function showIndicator(on) {
-      if (indicator) indicator.style.opacity = on ? '1' : '0';
+    function setRefreshStatus(text) {
+      if (indicator) indicator.textContent = text;
+    }
+    function isUserInteracting() {
+      var ae = document.activeElement;
+      if (!ae || !daysPane.contains(ae)) return false;
+      return /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
     }
 
     async function refreshDays() {
       if (!isPaneActive()) return;
       if (isUserInteracting()) return;
 
-      showIndicator(true);
+      setRefreshStatus('Checking…');
       try {
         var url = window.location.href.split('#')[0];
         var res = await fetch(url + (url.includes('?') ? '&' : '?') + '_=' + Date.now(), {
           cache: 'no-store',
           headers: { 'X-Requested-With': 'fetch' }
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setRefreshStatus('Refresh failed');
+          return;
+        }
 
         var html = await res.text();
         var tmp = document.createElement('div');
         tmp.innerHTML = html;
         var freshPane = tmp.querySelector('#days-pane');
-        if (!freshPane) return;
+        if (!freshPane) {
+          setRefreshStatus('Refresh failed');
+          return;
+        }
 
         var freshTbody = freshPane.querySelector('table tbody');
         var currTbody  = daysPane.querySelector('table tbody');
-        if (!freshTbody || !currTbody) return;
+        if (!freshTbody || !currTbody) {
+          setRefreshStatus('Refresh failed');
+          return;
+        }
 
         var freshHTML = freshTbody.innerHTML.trim();
         if (currTbody.innerHTML.trim() !== freshHTML) {
@@ -652,10 +703,9 @@
             currPanel.innerHTML = freshPanelHTML;
           }
         }
+        setRefreshStatus('Last refresh ' + formatClock(new Date()));
       } catch (e) {
-        // swallow errors silently
-      } finally {
-        setTimeout(function(){ showIndicator(false); }, 300);
+        setRefreshStatus('Refresh failed');
       }
     }
 
@@ -667,6 +717,7 @@
     }
 
     start();
+    refreshDays();
     if (daysTabBtn) daysTabBtn.addEventListener('shown.bs.tab', refreshDays);
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) stop();
@@ -1476,7 +1527,7 @@ document.addEventListener("DOMContentLoaded", function () {
 // Calling preventDefault() here stops the modal entirely - no backdrop is created,
 // so there is nothing to clean up and the page stays interactive.
 (function () {
-  var ALWAYS_ALLOWED = ['twoFactorReminderModal'];
+  var ALWAYS_ALLOWED = ['twoFactorReminderModal', 'confirmActionModal'];
   document.addEventListener('show.bs.modal', function (e) {
     if (ALWAYS_ALLOWED.indexOf(e.target.id) !== -1) return;
     e.preventDefault();

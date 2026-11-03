@@ -1,5 +1,6 @@
 {% load static %}
 <div class="booking-accident-reports-tab" data-booking-id="{{ booking.id }}">
+  <div id="accident-refresh-indicator-{{ booking.id }}" class="text-end small text-muted mb-1">Waiting for first refresh…</div>
   <div class="d-flex flex-wrap gap-2 mb-2">
     <button type="button"
             class="btn btn-outline-secondary btn-sm js-accident-report-bulk"
@@ -61,6 +62,14 @@
   if (!tbody || !pollUrl) return;
 
   const selectAll = document.querySelector('.accident-report-select-all[data-booking="' + bookingId + '"]');
+  const indicator = document.getElementById("accident-refresh-indicator-" + bookingId);
+
+  function formatClock(date) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function setRefreshStatus(text) {
+    if (indicator) indicator.textContent = text;
+  }
 
   function getSelectedIds() {
     return Array.from(tbody.querySelectorAll('input[name="ids"]:checked')).map(cb => cb.value);
@@ -172,17 +181,27 @@
 
   async function refresh() {
     if (!isAccidentReportsVisible()) return;
+    setRefreshStatus("Checking…");
     try {
       const selected = getSelectedIds();
       const resp = await fetch(pollUrl, { credentials: 'same-origin' });
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        setRefreshStatus("Refresh failed");
+        return;
+      }
       const data = await resp.json();
-      if (!data || typeof data.html !== 'string') return;
+      if (!data || typeof data.html !== 'string') {
+        setRefreshStatus("Refresh failed");
+        return;
+      }
       if (tbody.innerHTML.trim() !== data.html.trim()) {
         tbody.innerHTML = data.html;
         restoreSelectedIds(selected);
       }
-    } catch (e) {}
+      setRefreshStatus("Last refresh " + formatClock(new Date()));
+    } catch (e) {
+      setRefreshStatus("Refresh failed");
+    }
   }
 
   function start() {

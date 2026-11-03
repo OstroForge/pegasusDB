@@ -1537,12 +1537,18 @@ class AccidentReport(models.Model):
     def anonymize(self):
         if self.anonymized_at:
             return
-        self.injured_name = "*****"
-        self.injured_address = "*****"
-        self.first_aider_name = "*****"
-        self.reporter_name = "*****"
+        self.injured_name = "Anonymised"
+        self.injured_address = "Anonymised"
+        self.first_aider_name = "Anonymised"
+        self.reporter_name = "Anonymised"
         self.anonymized_at = timezone.now()
-        self.save(update_fields=["injured_name", "injured_address", "anonymized_at"])
+        self.save(update_fields=[
+            "injured_name",
+            "injured_address",
+            "first_aider_name",
+            "reporter_name",
+            "anonymized_at",
+        ])
 
 class RegisterEmailLog(models.Model):
     day = models.ForeignKey("BookingDay", on_delete=models.CASCADE, related_name="register_email_logs")

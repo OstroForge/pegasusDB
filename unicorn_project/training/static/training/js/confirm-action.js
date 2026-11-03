@@ -220,6 +220,9 @@
       var el = e.target.closest("[data-confirm]");
       if (!el) return;
 
+      // Booking accident-report buttons confirm and submit in their own handler.
+      if (el.classList.contains("js-accident-report-bulk")) return;
+
       // Submit controls are handled by the submit interceptor
       if (el.matches('button[type="submit"], input[type="submit"]')) return;
       if (el.tagName === "BUTTON" && !el.getAttribute("type") && el.closest("form")) return;

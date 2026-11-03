@@ -8,17 +8,7 @@
   </div>
 </div>
 
-{# Auto-refresh notice (always shown — polling updates the table as feedback arrives) #}
-<div class="alert alert-info py-2 mb-2 small d-flex justify-content-between align-items-center">
-  <div>
-    <i class="bi bi-arrow-repeat"></i>
-    This tab auto-refreshes every 5 seconds. Updates pause while your mouse is over the table.
-    <span id="feedback-last-updated-time" class="ms-2"></span>
-  </div>
-  <div id="feedback-auto-refresh-status" class="d-none">
-    Updating…
-  </div>
-</div>
+<div id="feedback-refresh-indicator" class="text-end small text-muted mb-1">Waiting for first refresh…</div>
 
 <div class="table-responsive">
   <table class="table table-sm align-middle table-striped table-hover">
@@ -59,7 +49,7 @@
 </div>
 
 <script>
-  // Feedback tab auto-refresh: swap <tbody> rows (pauses on hover + while typing)
+  // Feedback tab auto-refresh: swap <tbody> rows and show the last check time.
   (function(){
     const tbody = document.getElementById('feedback-body');
     if (!tbody) return;
@@ -67,21 +57,14 @@
     const pollUrl = tbody.dataset.pollUrl;
     const INTERVAL = 5000;
 
-    const lastUpdatedEl = document.getElementById('feedback-last-updated-time');
-    const statusEl = document.getElementById('feedback-auto-refresh-status');
-
-    // Pause updates while hovering the table body
-    let isHovering = false;
-    tbody.addEventListener('mouseenter', () => { isHovering = true; });
-    tbody.addEventListener('mouseleave', () => { isHovering = false; });
+    const statusEl = document.getElementById('feedback-refresh-indicator');
 
     function formatTime(d) {
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
-    function setLastUpdatedNow() {
-      if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${formatTime(new Date())}`;
+    function setRefreshStatus(text) {
+      if (statusEl) statusEl.textContent = text;
     }
-    setLastUpdatedNow();
 
     // Don't refresh while user is interacting with inputs inside the table (future-proof)
     function isBusy() {
@@ -99,30 +82,33 @@
     }
 
     async function tick() {
+      const shouldPoll = !document.hidden && feedbackTabIsActive() && !isBusy();
+      if (shouldPoll) setRefreshStatus('Checking…');
       try {
-        if (!document.hidden && feedbackTabIsActive() && !isBusy() && !isHovering) {
-          if (statusEl) statusEl.classList.remove('d-none');
-
+        if (shouldPoll) {
           const resp = await fetch(pollUrl, { headers: {"X-Requested-With": "XMLHttpRequest"} });
-          if (resp.ok) {
+          if (!resp.ok) {
+            setRefreshStatus('Refresh failed');
+          } else {
             const data = await resp.json();
             if (data && typeof data.html === "string") {
               if (tbody.getAttribute('data-last') !== data.html) {
                 tbody.innerHTML = data.html;
                 tbody.setAttribute('data-last', data.html);
-                setLastUpdatedNow();
               }
+              setRefreshStatus('Last refresh ' + formatTime(new Date()));
+            } else {
+              setRefreshStatus('Refresh failed');
             }
           }
         }
-      } catch (e) { /* silent */ }
-      finally {
-        if (statusEl) statusEl.classList.add('d-none');
+      } catch (e) {
+        if (shouldPoll) setRefreshStatus('Refresh failed');
       }
       setTimeout(tick, INTERVAL);
     }
 
-    setTimeout(tick, INTERVAL);
+    setTimeout(tick, 200);
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) setTimeout(tick, 200);
     });

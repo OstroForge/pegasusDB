@@ -87,6 +87,70 @@ def _safe_next_url(request, fallback_url: str) -> str:
     return fallback_url
 
 
+def _previous_booking_day(day):
+    """The course day immediately before this one, by date then id."""
+    if not day or not getattr(day, "booking_id", None) or not day.date:
+        return None
+    return (
+        BookingDay.objects.filter(booking_id=day.booking_id)
+        .select_related("booking", "instructor")
+        .filter(Q(date__lt=day.date) | Q(date=day.date, pk__lt=day.pk))
+        .order_by("-date", "-pk")
+        .first()
+    )
+
+
+def _can_copy_delegates_onto(personnel, day, previous):
+    """
+    Copy onto a day you deliver, or onto the next day after one you deliver.
+    On a split course the person who had yesterday's register can seed the
+    next day without taking that day over.
+    """
+    if not personnel or not day or not previous:
+        return False
+    if instructor_can_access_day(personnel, day):
+        return True
+    return instructor_can_access_day(personnel, previous)
+
+
+def _copy_delegates_from_day(source_day, target_day, instructor):
+    """
+    Copy identity fields onto target_day. Skip anyone already there
+    (same name and date of birth). Health, notes and outcome stay fresh
+    for the new day.
+    """
+    existing = {
+        ((name or "").strip().lower(), dob)
+        for name, dob in DelegateRegister.objects.filter(
+            booking_day=target_day
+        ).values_list("name", "date_of_birth")
+    }
+    copied = 0
+    skipped = 0
+    target_date = target_day.date or timezone.localdate()
+    for src in DelegateRegister.objects.filter(booking_day=source_day).order_by("name", "id"):
+        key = ((src.name or "").strip().lower(), src.date_of_birth)
+        if key in existing:
+            skipped += 1
+            continue
+        DelegateRegister.objects.create(
+            name=src.name,
+            date_of_birth=src.date_of_birth,
+            job_title=src.job_title or "",
+            employee_id=src.employee_id or "",
+            certificate_name=src.certificate_name or "",
+            date=target_date,
+            instructor=instructor,
+            health_status=DelegateRegister.HealthStatus.FIT,
+            outcome=CourseOutcome.PENDING,
+            notes="",
+            booking_day=target_day,
+        )
+        existing.add(key)
+        copied += 1
+    return copied, skipped
+
+
 
 def safe_folder_name(s: str) -> str:
     """Make a Google Drive-safe folder name."""
@@ -2617,10 +2681,12 @@ def instructor_booking_detail(request, pk):
     days = (
         BookingDay.objects
         .filter(booking=booking)
+        .select_related("instructor", "booking")
         .order_by("date")
     )
 
     day_rows = []
+    prior_day = None
     for d in days:
         n = DelegateRegister.objects.filter(booking_day=d).count()
 
@@ -2637,11 +2703,15 @@ def instructor_booking_detail(request, pk):
             "n": n,
             "warn": warn_count > 0,
             "warn_count": warn_count,
+            "previous_id": prior_day.pk if prior_day else None,
+            "previous_date": prior_day.date if prior_day else None,
+            "can_copy": _can_copy_delegates_onto(instr, d, prior_day),
             "edit_url": (
                 reverse("instructor_booking_detail", kwargs={"pk": booking.pk})
                 + f"?day={d.pk}#days-pane"
             ),
         })
+        prior_day = d
 
     ctx["day_rows"] = day_rows
     ctx["days"] = days
@@ -2684,9 +2754,15 @@ def instructor_booking_detail(request, pk):
         ctx["selected_day_add_url"] = reverse("instructor_delegate_new", args=[selected_day.pk]) + "?" + urlencode({"next": selected_day_back_url})
         ctx["selected_day_full_url"] = reverse("instructor_day_registers", args=[selected_day.pk])
         ctx["selected_day_pdf_url"] = reverse("instructor_day_registers_pdf", args=[selected_day.pk])
+        ctx["previous_day"] = _previous_booking_day(selected_day)
+        ctx["can_copy_selected"] = _can_copy_delegates_onto(
+            instr, selected_day, ctx["previous_day"]
+        )
     else:
         ctx["selected_day"] = None
         ctx["selected_day_rows"] = []
+        ctx["previous_day"] = None
+        ctx["can_copy_selected"] = False
 
     # For Quick test links (dummy bookings always; all bookings when DEBUG)
     from .utils.quick_test_links import attach_quick_test_links_context
@@ -3052,6 +3128,74 @@ def instructor_assessment_outcome_autosave(request, pk):
 
 
 @login_required
+@require_POST
+@transaction.atomic
+def instructor_copy_previous_day_registers(request, pk: int):
+    """Copy delegate names from the previous course day onto this day."""
+    instr = getattr(request.user, "personnel", None)
+    day = get_object_or_404(
+        BookingDay.objects.select_related(
+            "booking__instructor", "booking__course_type", "instructor"
+        ),
+        pk=pk,
+    )
+    if not instr or not instructor_can_access_booking(instr, day.booking):
+        messages.error(request, "You do not have access to this booking.")
+        return redirect("instructor_bookings")
+
+    fallback_url = (
+        reverse("instructor_booking_detail", kwargs={"pk": day.booking_id})
+        + f"?day={day.pk}#days-pane"
+    )
+    next_url = _safe_next_url(request, fallback_url)
+
+    previous = _previous_booking_day(day)
+    if not previous:
+        messages.error(
+            request,
+            "This is the first day of the course, so there is no earlier register to copy.",
+        )
+        return redirect(next_url)
+    if not _can_copy_delegates_onto(instr, day, previous):
+        messages.error(
+            request,
+            "You can copy delegates onto a day you are delivering, or onto the next day after one you are delivering.",
+        )
+        return redirect(next_url)
+
+    guard = _closed_guard(request, day.booking)
+    if guard:
+        return guard
+
+    prev_label = date_format(previous.date, "j M Y")
+    if not DelegateRegister.objects.filter(booking_day=previous).exists():
+        messages.warning(request, f"There are no delegates on {prev_label} to copy.")
+        return redirect(next_url)
+
+    # When you only taught the day before, the new rows stay with the
+    # instructor who is delivering the day you are copying onto.
+    if instructor_can_access_day(instr, day):
+        owner = instr
+    else:
+        owner = day.instructor or day.booking.instructor or instr
+    copied, skipped = _copy_delegates_from_day(previous, day, owner)
+    if copied == 0:
+        messages.info(request, f"Everyone from {prev_label} is already on this register.")
+    elif skipped:
+        messages.success(
+            request,
+            f"Copied {copied} delegate{'' if copied == 1 else 's'} from {prev_label}. "
+            f"{skipped} {'was' if skipped == 1 else 'were'} already on this day.",
+        )
+    else:
+        messages.success(
+            request,
+            f"Copied {copied} delegate{'' if copied == 1 else 's'} from {prev_label}.",
+        )
+    return redirect(next_url)
+
+
+@login_required
 def instructor_day_registers(request, pk: int):
     """
     Read-only list of delegates for a day, with coloured health indicator and Edit/Delete buttons.
@@ -3089,6 +3233,7 @@ def instructor_day_registers(request, pk: int):
     return render(request, "instructor/day_registers.html", {
         "title": f"Registers — {day.booking.course_type.name} — {date_format(day.date, 'j M Y')}",
         "day": day,
+        "previous_day": _previous_booking_day(day),
         "rows": rows,
         "back_url": redirect("instructor_booking_detail", pk=day.booking_id).url,
         "legend": [

@@ -2005,7 +2005,13 @@ def accident_report_anonymise(request):
     if booking is not None:
         qs = qs.filter(booking=booking)
     now = timezone.now()
-    updated = qs.update(injured_name="", injured_address="", anonymized_at=now)
+    updated = qs.update(
+        injured_name="Anonymised",
+        injured_address="Anonymised",
+        first_aider_name="Anonymised",
+        reporter_name="Anonymised",
+        anonymized_at=now,
+    )
 
     messages.success(request, f"Anonymised {updated} report{'s' if updated != 1 else ''}.")
     if booking:

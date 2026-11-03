@@ -12,6 +12,20 @@
     <i class="bi bi-person-plus"></i> Add delegate
   </a>
 
+  {% if previous_day %}
+    <form method="post"
+          action="{% url 'instructor_copy_previous_day_registers' day.pk %}"
+          class="d-inline"
+          data-confirm="Copy delegates from {{ previous_day.date|date:'j M Y' }} onto this day? Anyone already listed is left unchanged. Health, notes and results are not copied."
+          data-confirm-label="Copy delegates"
+          data-confirm-danger="0">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-clipboard"></i> Copy from {{ previous_day.date|date:"j M Y" }}
+      </button>
+    </form>
+  {% endif %}
+
   <a class="btn btn-outline-primary btn-sm"
      href="{% url 'instructor_day_registers_pdf' day.id %}"
      download>
@@ -25,16 +39,7 @@
 </div>
 {% endif %}
 
-<div class="alert alert-info py-2 mb-2 small d-flex flex-wrap justify-content-between align-items-center gap-2">
-  <div>
-    <i class="bi bi-arrow-repeat"></i>
-    This page auto-refreshes every 5 seconds. Updates pause while your mouse is over the list.
-    <span id="last-updated-time" class="ms-2"></span>
-  </div>
-  <div id="auto-refresh-status" class="d-none">
-    Updating…
-  </div>
-</div>
+<div id="registers-refresh-indicator" class="text-end small text-muted mb-1">Waiting for first refresh…</div>
 
 <div class="table-responsive mb-3">
   <table class="table table-sm align-middle table-striped table-hover">
@@ -297,21 +302,14 @@
     const pollUrl = tbody.dataset.pollUrl;
     const INTERVAL = 5000;
 
-    const lastUpdatedEl = document.getElementById('last-updated-time');
-    const statusEl = document.getElementById('auto-refresh-status');
-
-    let isHovering = false;
-    tbody.addEventListener('mouseenter', () => { isHovering = true; });
-    tbody.addEventListener('mouseleave', () => { isHovering = false; });
+    const statusEl = document.getElementById('registers-refresh-indicator');
 
     function formatTime(d) {
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
-    function setLastUpdatedNow() {
-      if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${formatTime(new Date())}`;
+    function setRefreshStatus(text) {
+      if (statusEl) statusEl.textContent = text;
     }
-    // set an initial value
-    setLastUpdatedNow();
 
     // Don't refresh while user is interacting with table inputs or delete forms
     function isBusy() {
@@ -322,31 +320,33 @@
     }
 
     async function tick() {
+      const shouldPoll = !document.hidden && !isBusy();
+      if (shouldPoll) setRefreshStatus('Checking…');
       try {
-        if (!document.hidden && !isBusy() && !isHovering) {
-          if (statusEl) statusEl.classList.remove('d-none');
-
+        if (shouldPoll) {
           const resp = await fetch(pollUrl, {headers: {"X-Requested-With": "XMLHttpRequest"}});
-          if (resp.ok) {
+          if (!resp.ok) {
+            setRefreshStatus('Refresh failed');
+          } else {
             const data = await resp.json();
             if (data && typeof data.html === "string") {
-              // Only replace if content actually changed
               if (tbody.getAttribute('data-last') !== data.html) {
                 tbody.innerHTML = data.html;
                 tbody.setAttribute('data-last', data.html);
-                setLastUpdatedNow();
               }
+              setRefreshStatus('Last refresh ' + formatTime(new Date()));
+            } else {
+              setRefreshStatus('Refresh failed');
             }
           }
         }
-      } catch (e) { /* swallow errors silently */ }
-      finally {
-        if (statusEl) statusEl.classList.add('d-none');
+      } catch (e) {
+        if (shouldPoll) setRefreshStatus('Refresh failed');
       }
       setTimeout(tick, INTERVAL);
     }
 
-    setTimeout(tick, INTERVAL);
+    setTimeout(tick, 200);
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) setTimeout(tick, 200);
     });

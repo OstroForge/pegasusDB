@@ -67,6 +67,7 @@ urlpatterns = [
     path("app/instructor/booking/<uuid:booking_id>/accident-reports/delete/", views.instructor_booking_accident_reports_delete, name="instructor_booking_accident_reports_delete"),
     path("app/instructor/booking/<uuid:booking_id>/accident-reports/anonymise/", views.instructor_booking_accident_reports_anonymise, name="instructor_booking_accident_reports_anonymise"),
     path("app/instructor/day/<int:pk>/registers/", instv.instructor_day_registers, name="instructor_day_registers"),
+    path("app/instructor/day/<int:pk>/registers/copy-previous/", instv.instructor_copy_previous_day_registers, name="instructor_copy_previous_day_registers"),
     path("app/instructor/register/<int:pk>/edit/", instv.instructor_delegate_edit, name="instructor_delegate_edit"),
     path("app/instructor/day/<int:day_pk>/registers/new/", instv.instructor_delegate_new, name="instructor_delegate_new"),
     path("app/profile/", views.user_profile, name="user_profile"),
