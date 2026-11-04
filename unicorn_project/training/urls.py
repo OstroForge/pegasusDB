@@ -270,6 +270,7 @@ urlpatterns = [
     path("exam/", views_public.delegate_exam_start, name="delegate_exam_start"),
     path("exam/instructors/", views_public.exam_instructors_api, name="exam_instructors_api"),
     path("exam/rules/", views_public.delegate_exam_rules, name="delegate_exam_rules"),
+    path("exam/question/<int:pk>/image/", views_public.exam_question_image, name="exam_question_image"),
     path("exam/run/", views_public.delegate_exam_run, name="delegate_exam_run"),
     path("exam/review/", views_public.delegate_exam_review, name="delegate_exam_review"),
     path("exam/finish/", views_public.delegate_exam_finish, name="delegate_exam_finish"),

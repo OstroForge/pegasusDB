@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import HttpResponseForbidden, HttpRequest, HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponseForbidden, HttpRequest, HttpResponse, HttpResponseBadRequest, Http404
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -585,7 +585,26 @@ def _parse_exam_date(value: str) -> date | None:
         except ValueError:
             pass
     return None
-    
+
+
+@require_http_methods(["GET"])
+def exam_question_image(request, pk: int):
+    """Serve a question image stored in the database. Used by the public exam."""
+    question = get_object_or_404(
+        ExamQuestion.objects.only("id", "image_filename", "image_content_type", "image_data"),
+        pk=pk,
+    )
+    if not question.image_filename or not question.image_data:
+        raise Http404("Question image not found.")
+    content_type = question.image_content_type or "application/octet-stream"
+    if not content_type.startswith("image/"):
+        content_type = "application/octet-stream"
+    response = HttpResponse(bytes(question.image_data), content_type=content_type)
+    response["Cache-Control"] = "public, max-age=86400"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @ensure_csrf_cookie
 @csrf_protect
 @require_http_methods(["GET", "POST"])

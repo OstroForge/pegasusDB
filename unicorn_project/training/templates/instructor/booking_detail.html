@@ -757,14 +757,14 @@
           {% with seq=ex.sequence code=ex.exam_code %}
           <div class="accordion-item mb-2">
             <h2 class="accordion-header" id="ex-h-{{ seq }}">
-              <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}" type="button"
+              <button class="accordion-button {% if seq != open_exam_sequence %}collapsed{% endif %}" type="button"
                       data-bs-toggle="collapse" data-bs-target="#ex-c-{{ seq }}"
-                      aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}"
+                      aria-expanded="{% if seq == open_exam_sequence %}true{% else %}false{% endif %}"
                       aria-controls="ex-c-{{ seq }}">
                 Exam {{ seq }} — {{ ex.title }} <span class="ms-2 small text-muted">({{ code }})</span>
               </button>
             </h2>
-            <div id="ex-c-{{ seq }}" class="accordion-collapse collapse {% if forloop.first %}show{% endif %}"
+            <div id="ex-c-{{ seq }}" class="accordion-collapse collapse {% if seq == open_exam_sequence %}show{% endif %}"
                  aria-labelledby="ex-h-{{ seq }}" data-bs-parent="#examAccordion">
               <div class="accordion-body p-0">
                 <div class="table-responsive">

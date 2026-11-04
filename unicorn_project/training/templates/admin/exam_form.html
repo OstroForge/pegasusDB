@@ -4,7 +4,7 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<form method="post" novalidate class="exam-editor">
+<form method="post" enctype="multipart/form-data" novalidate class="exam-editor">
   {% csrf_token %}
 
 <style>
@@ -173,17 +173,27 @@
 
             <div class="row g-3 mt-1">
               <div class="col-md-8">
-                <label class="form-label">Image URL (optional)</label>
+                <label class="form-label">Image file</label>
+                {{ qform.image_upload }}
+                {% for e in qform.image_upload.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                <div class="form-text">JPG, PNG, WEBP or GIF, up to 4 MB. Stored in the app and shown during the exam.</div>
+                {% if qform.instance.image_filename %}
+                  <div class="form-check mt-2">
+                    {{ qform.clear_stored_image }}
+                    <label class="form-check-label" for="{{ qform.clear_stored_image.id_for_label }}">Remove the stored image</label>
+                  </div>
+                {% endif %}
+                <label class="form-label mt-3">Or an external image URL</label>
                 {{ qform.image_url }}
                 {% if qform.image_url.errors %}
                   {% for e in qform.image_url.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
                 {% endif %}
-                <div class="form-text">Paste a full URL to an image (e.g. https://...jpg / png / webp).</div>
+                <div class="form-text">Used only when no file is stored on the question. A stored file is more reliable on phones and venue Wi-Fi.</div>
               </div>
 
-              {% if qform.instance.image_url %}
+              {% if qform.instance.display_image_url %}
                 <div class="col-md-4">
-                  <img src="{{ qform.instance.image_url }}" alt="Question image"
+                  <img src="{{ qform.instance.display_image_url }}" alt="Question image"
                       class="img-fluid rounded border mt-2" style="max-height: 220px;">
                 </div>
               {% endif %}
@@ -313,9 +323,11 @@
             </div>
           </div>
               <div class="col-md-12">
-                <label class="form-label">Image URL (optional)</label>
+                <label class="form-label">Image file</label>
+                {{ q_formset.empty_form.image_upload.as_widget }}
+                <div class="form-text">JPG, PNG, WEBP or GIF, up to 4 MB. Stored in the app.</div>
+                <label class="form-label mt-2">Or an external image URL</label>
                 {{ q_formset.empty_form.image_url.as_widget }}
-                <div class="form-text">Paste a full URL to an image.</div>
               </div>
             </div>
             {{ q_formset.empty_form.id.as_widget }}

@@ -29,17 +29,7 @@
         <div>
           <div class="review-qnum">Question {{ forloop.counter }}</div>
           <div class="review-text">{{ q.text }}</div>
-          {% if q.image_url %}
-            <img
-              src="{{ q.image_url }}"
-              alt="Question image"
-              class="exam-question-image img-fluid mt-2"
-              style="max-height: 240px;"
-              loading="lazy"
-              referrerpolicy="no-referrer"
-              onerror="this.style.display='none';"
-            >
-          {% endif %}
+          {% include "exam/_question_image.html" with image_src=q.display_image_url %}
         </div>
         <a class="btn btn-sm btn-outline-secondary flex-shrink-0"
            href="{% url 'delegate_exam_run' %}?examcode={{ exam.exam_code }}&attempt={{ attempt.id }}&q={{ forloop.counter }}">

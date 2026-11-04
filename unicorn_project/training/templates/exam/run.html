@@ -27,16 +27,7 @@
     <div class="exam-section">
       <p class="exam-question-text mb-0">{{ question.text }}</p>
 
-      {% if question.image_url %}
-        <img
-          src="{{ question.image_url }}"
-          alt="Question image"
-          class="exam-question-image img-fluid mt-3"
-          loading="lazy"
-          referrerpolicy="no-referrer"
-          onerror="this.style.display='none';"
-        >
-      {% endif %}
+      {% include "exam/_question_image.html" with image_src=question.display_image_url %}
 
       <div class="choice-list mt-3">
         {% for a in answers %}

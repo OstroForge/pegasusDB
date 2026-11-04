@@ -2637,7 +2637,7 @@ def exam_form(request, pk):
                             del post[field_name]
 
         eform = ExamForm(post, instance=exam)
-        qset  = QuestionFormSet(post, instance=exam, prefix="q")
+        qset  = QuestionFormSet(post, request.FILES, instance=exam, prefix="q")
 
         # Build answer formsets; bind only if management keys exist for that prefix
         answer_sets = []

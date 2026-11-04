@@ -1368,14 +1368,24 @@ class ExamQuestion(models.Model):
         blank=True,
         null=True,
         max_length=500,
-        help_text="Optional image URL for this question",
+        help_text="Optional external image URL. A file stored on the question is used instead when one has been uploaded.",
     )
+    image_filename = models.CharField(max_length=255, blank=True, default="")
+    image_content_type = models.CharField(max_length=100, blank=True, default="")
+    image_data = models.BinaryField(null=True, blank=True)
 
     class Meta:
         ordering = ["order", "id"]
 
     def __str__(self):
         return f"Q{self.order}: {self.text[:60]}"
+
+    def display_image_url(self) -> str:
+        """Address the exam page should use. Stored files are served by this app."""
+        if self.pk and self.image_filename:
+            from django.urls import reverse
+            return reverse("exam_question_image", args=[self.pk])
+        return (self.image_url or "").strip()
 
 
 class ExamAnswer(models.Model):

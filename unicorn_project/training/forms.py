@@ -1121,6 +1121,16 @@ class ExamForm(forms.ModelForm):
 
 
 class ExamQuestionForm(forms.ModelForm):
+    image_upload = forms.ImageField(
+        required=False,
+        label="Image file",
+        widget=forms.FileInput(attrs={"class": "form-control", "accept": "image/jpeg,image/png,image/webp,image/gif"}),
+    )
+    clear_stored_image = forms.BooleanField(
+        required=False,
+        label="Remove the stored image",
+    )
+
     class Meta:
         model = ExamQuestion
         fields = ["order", "is_active", "text", "image_url"]
@@ -1130,6 +1140,29 @@ class ExamQuestionForm(forms.ModelForm):
             "text": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "image_url": forms.URLInput(attrs={"class": "form-control"}),
         }
+
+    def clean_image_upload(self):
+        upload = self.cleaned_data.get("image_upload")
+        if upload and upload.size > 4 * 1024 * 1024:
+            raise forms.ValidationError("Image must be 4 MB or smaller.")
+        return upload
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        upload = self.cleaned_data.get("image_upload")
+        if upload:
+            upload.seek(0)
+            obj.image_data = upload.read()
+            obj.image_content_type = getattr(upload, "content_type", "") or "image/png"
+            obj.image_filename = (getattr(upload, "name", "") or "question-image").rsplit("/", 1)[-1][:255]
+        elif self.cleaned_data.get("clear_stored_image"):
+            obj.image_data = None
+            obj.image_content_type = ""
+            obj.image_filename = ""
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
 
 class ExamAnswerForm(forms.ModelForm):
     class Meta:

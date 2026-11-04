@@ -3,7 +3,7 @@ import io, contextlib, os, re, mimetypes, logging
 from urllib.parse import urlencode
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
-from datetime import timedelta, datetime
+from datetime import time as clock_time, timedelta, datetime
 from django.contrib import messages
 from django.conf import settings
 from django.core.mail import EmailMessage
@@ -85,6 +85,53 @@ def _safe_next_url(request, fallback_url: str) -> str:
     ):
         return candidate
     return fallback_url
+
+
+def _parse_posted_clock(raw):
+    """Read an <input type="time"> value. Browsers send HH:MM or HH:MM:SS."""
+    text = (raw or "").strip()
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _open_exam_sequence_for_booking(days, course_exams):
+    """
+    Which exam accordion to open while the instructor waits for submissions.
+    Course day 1 opens exam 1, day 2 opens exam 2, and so on.
+    Before the course, exam 1. After the last day, the exam for that last day.
+    """
+    sequences = sorted({
+        int(ex.sequence)
+        for ex in (course_exams or [])
+        if getattr(ex, "sequence", None) is not None
+    })
+    if not sequences:
+        return None
+
+    today = timezone.localdate()
+    day_index = None
+    for i, day in enumerate(days, start=1):
+        if day.date < today:
+            day_index = i
+        elif day.date == today:
+            day_index = i
+            break
+        else:
+            break
+    if day_index is None:
+        day_index = 1
+
+    chosen = sequences[0]
+    for seq in sequences:
+        if seq <= day_index:
+            chosen = seq
+        else:
+            break
+    return chosen
 
 
 def _previous_booking_day(day):
@@ -2159,15 +2206,13 @@ def instructor_booking_detail(request, pk):
                 new_start = d.start_time
                 new_end = d.end_time
                 if start_raw:
-                    try:
-                        new_start = datetime.strptime(start_raw, "%H:%M").time()
-                    except ValueError:
+                    new_start = _parse_posted_clock(start_raw)
+                    if new_start is None:
                         messages.error(request, f"Invalid start time for {d.date}.")
                         return redirect(f"{request.path}#days-pane")
                 if end_raw:
-                    try:
-                        new_end = datetime.strptime(end_raw, "%H:%M").time()
-                    except ValueError:
+                    new_end = _parse_posted_clock(end_raw)
+                    if new_end is None:
                         messages.error(request, f"Invalid end time for {d.date}.")
                         return redirect(f"{request.path}#days-pane")
 
@@ -2716,6 +2761,7 @@ def instructor_booking_detail(request, pk):
     ctx["day_rows"] = day_rows
     ctx["days"] = days
     ctx["last_day"] = days.last()
+    ctx["open_exam_sequence"] = _open_exam_sequence_for_booking(days, course_exams)
 
     selected_day = None
     selected_day_rows = []
@@ -2814,15 +2860,14 @@ def instructor_booking_detail(request, pk):
     # Build Google Calendar links per BookingDay
     # -----------------------------------------
     import urllib.parse
-    import datetime
 
     gcal_links = []
 
     for d in days:
         date_str = d.date.strftime("%Y%m%d")
 
-        start_t = d.start_time or datetime.time(9, 0)
-        end_t   = d.end_time   or datetime.time(17, 0)
+        start_t = d.start_time or clock_time(9, 0)
+        end_t   = d.end_time   or clock_time(17, 0)
 
         start_str = start_t.strftime("%H%M%S")
         end_str   = end_t.strftime("%H%M%S")
