@@ -4,8 +4,8 @@ from django.db import migrations, models
 
 
 BUNDLED_IMAGES = {
-    "exam_faaw_02_01.png": "https://i.postimg.cc/ZRv9z8zj/laceration.png",
-    "exam_faaw_02_05.png": "https://i.postimg.cc/NfNkYwyQ/embedded-object.png",
+    "exam_faaw_02_12.png": "https://i.postimg.cc/ZRv9z8zj/laceration.png",
+    "exam_faaw_02_16.png": "https://i.postimg.cc/NfNkYwyQ/embedded-object.png",
 }
 
 

@@ -17,7 +17,7 @@ from django.db import transaction
 from django.db.models import Q, Count, Min, Max, Avg, OuterRef, Subquery
 from django.db.models.deletion import ProtectedError
 from django.forms import modelformset_factory, inlineformset_factory
-from django.http import Http404, HttpResponseForbidden, HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponseForbidden, HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse, NoReverseMatch
 from django.utils import timezone
@@ -2601,6 +2601,24 @@ def delegate_register_delete(request, pk: int):
         "back_url": back,
     })
 
+def _exam_library_images():
+    from .exam_library import list_library_images
+    return list_library_images()
+
+
+@admin_required
+def exam_library_image(request, filename):
+    """Preview a picture stored in the project's exam_images folder."""
+    from .exam_library import library_image_path
+    import mimetypes
+
+    path = library_image_path(filename)
+    if path is None:
+        raise Http404("Exam image not found.")
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path.open("rb"), content_type=content_type)
+
+
 @admin_required
 def exam_form(request, pk):
     exam = get_object_or_404(Exam.objects.select_related("course_type"), pk=pk)
@@ -2637,7 +2655,11 @@ def exam_form(request, pk):
                             del post[field_name]
 
         eform = ExamForm(post, instance=exam)
-        qset  = QuestionFormSet(post, request.FILES, instance=exam, prefix="q")
+        library_images = _exam_library_images()
+        qset  = QuestionFormSet(
+            post, request.FILES, instance=exam, prefix="q",
+            form_kwargs={"library_images": library_images},
+        )
 
         # Build answer formsets; bind only if management keys exist for that prefix
         answer_sets = []
@@ -2702,7 +2724,11 @@ def exam_form(request, pk):
             messages.error(request, "Please correct the errors below.")
     else:
         eform = ExamForm(instance=exam)
-        qset  = QuestionFormSet(instance=exam, prefix="q")
+        library_images = _exam_library_images()
+        qset  = QuestionFormSet(
+            instance=exam, prefix="q",
+            form_kwargs={"library_images": library_images},
+        )
         answer_sets = [
             AnswerFormSet(instance=qf.instance, prefix=f"a-{i}")
             for i, qf in enumerate(qset.forms)
@@ -2717,6 +2743,7 @@ def exam_form(request, pk):
         "exam_form": eform,
         "q_formset": qset,
         "qa_pairs": qa_pairs,
+        "exam_library_images": library_images,
         "cancel_url": reverse("admin_course_edit", args=[course.pk]),
     })
 

@@ -117,6 +117,21 @@
     <div class="card-body">
       {{ q_formset.management_form }}
 
+      {% if exam_library_images %}
+        <div class="mb-3">
+          <div class="fw-semibold mb-2">Images on the server</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for name in exam_library_images %}
+              <figure class="mb-0 text-center" style="width: 130px;">
+                <img src="{% url 'admin_exam_library_image' name %}" alt="{{ name }}"
+                     class="img-thumbnail" style="max-height: 90px; object-fit: contain;">
+                <figcaption class="small text-break">{{ name }}</figcaption>
+              </figure>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
       {% if q_formset.non_form_errors %}
         <div class="alert alert-danger py-2">{{ q_formset.non_form_errors }}</div>
       {% endif %}
@@ -172,31 +187,58 @@
             </div>
 
             <div class="row g-3 mt-1">
-              <div class="col-md-8">
-                <label class="form-label">Image file</label>
+              <div class="col-12">
+                {% if qform.instance.pk %}
+                  <div class="small mb-2">
+                    <div>
+                      <span class="text-muted">Current image:</span>
+                      {% if qform.instance.image_filename %}
+                        <code>exam_images/{{ qform.instance.image_filename }}</code>
+                      {% elif qform.instance.image_url %}
+                        <code>{{ qform.instance.image_url }}</code>
+                      {% else %}
+                        None
+                      {% endif %}
+                    </div>
+                    {% if qform.instance.display_image_url %}
+                      <div>
+                        <span class="text-muted">Exam address:</span>
+                        <code>{{ qform.instance.display_image_url }}</code>
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endif %}
+                {% if qform.instance.display_image_url %}
+                  <img src="{{ qform.instance.display_image_url }}" alt="Question image"
+                       class="img-fluid rounded border mb-3" style="max-height: 220px;">
+                {% endif %}
+              </div>
+              <div class="col-md-6">
+                <label class="form-label" for="{{ qform.server_image.id_for_label }}">Image on the server</label>
+                {{ qform.server_image }}
+                {% for e in qform.server_image.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+                <div class="form-text">Choose one of the pictures shown above. Save to use it on this question.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Upload from this computer</label>
                 {{ qform.image_upload }}
                 {% for e in qform.image_upload.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-                <div class="form-text">JPG, PNG, WEBP or GIF, up to 4 MB. Stored in the app and shown during the exam.</div>
+                <div class="form-text">JPG, PNG, WEBP or GIF, up to 4 MB. An upload replaces a server picture.</div>
                 {% if qform.instance.image_filename %}
                   <div class="form-check mt-2">
                     {{ qform.clear_stored_image }}
                     <label class="form-check-label" for="{{ qform.clear_stored_image.id_for_label }}">Remove the stored image</label>
                   </div>
                 {% endif %}
-                <label class="form-label mt-3">Or an external image URL</label>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label">Or an external image URL</label>
                 {{ qform.image_url }}
                 {% if qform.image_url.errors %}
                   {% for e in qform.image_url.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
                 {% endif %}
-                <div class="form-text">Used only when no file is stored on the question. A stored file is more reliable on phones and venue Wi-Fi.</div>
+                <div class="form-text">Used only when this question has no stored picture.</div>
               </div>
-
-              {% if qform.instance.display_image_url %}
-                <div class="col-md-4">
-                  <img src="{{ qform.instance.display_image_url }}" alt="Question image"
-                      class="img-fluid rounded border mt-2" style="max-height: 220px;">
-                </div>
-              {% endif %}
             </div>
 
             {% if aformset.non_form_errors %}
@@ -323,9 +365,11 @@
             </div>
           </div>
               <div class="col-md-12">
-                <label class="form-label">Image file</label>
+                <label class="form-label">Image on the server</label>
+                {{ q_formset.empty_form.server_image.as_widget }}
+                <label class="form-label mt-2">Upload from this computer</label>
                 {{ q_formset.empty_form.image_upload.as_widget }}
-                <div class="form-text">JPG, PNG, WEBP or GIF, up to 4 MB. Stored in the app.</div>
+                <div class="form-text">JPG, PNG, WEBP or GIF, up to 4 MB.</div>
                 <label class="form-label mt-2">Or an external image URL</label>
                 {{ q_formset.empty_form.image_url.as_widget }}
               </div>

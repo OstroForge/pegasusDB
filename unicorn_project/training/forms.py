@@ -1123,13 +1123,27 @@ class ExamForm(forms.ModelForm):
 class ExamQuestionForm(forms.ModelForm):
     image_upload = forms.ImageField(
         required=False,
-        label="Image file",
+        label="Upload from this computer",
         widget=forms.FileInput(attrs={"class": "form-control", "accept": "image/jpeg,image/png,image/webp,image/gif"}),
+    )
+    server_image = forms.ChoiceField(
+        required=False,
+        label="Image on the server",
+        choices=[("", "Leave unchanged")],
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
     )
     clear_stored_image = forms.BooleanField(
         required=False,
         label="Remove the stored image",
     )
+
+    def __init__(self, *args, library_images=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        names = list(library_images or [])
+        self.fields["server_image"].choices = [("", "Leave unchanged")] + [(name, name) for name in names]
+        current = (getattr(self.instance, "image_filename", "") or "")
+        if not self.is_bound and current in names:
+            self.initial["server_image"] = current
 
     class Meta:
         model = ExamQuestion
@@ -1147,9 +1161,20 @@ class ExamQuestionForm(forms.ModelForm):
             raise forms.ValidationError("Image must be 4 MB or smaller.")
         return upload
 
+    def clean_server_image(self):
+        from .exam_library import library_image_path
+
+        name = (self.cleaned_data.get("server_image") or "").strip()
+        if name and library_image_path(name) is None:
+            raise forms.ValidationError("That image is not on the server.")
+        return name
+
     def save(self, commit=True):
+        from .exam_library import read_library_image
+
         obj = super().save(commit=False)
         upload = self.cleaned_data.get("image_upload")
+        chosen = (self.cleaned_data.get("server_image") or "").strip()
         if upload:
             upload.seek(0)
             obj.image_data = upload.read()
@@ -1159,6 +1184,13 @@ class ExamQuestionForm(forms.ModelForm):
             obj.image_data = None
             obj.image_content_type = ""
             obj.image_filename = ""
+        elif chosen:
+            loaded = read_library_image(chosen)
+            if loaded:
+                data, content_type = loaded
+                obj.image_data = data
+                obj.image_content_type = content_type
+                obj.image_filename = chosen
         if commit:
             obj.save()
             self.save_m2m()

@@ -109,6 +109,7 @@ urlpatterns = [
     # ---------- Admin dashboard ----------
     path("app/admin/", views_admin.admin_dashboard, name="app_admin_dashboard"),
     path("app/admin/exams/<int:pk>/", app_admin.exam_form, name="admin_exam_edit"),
+    path("app/admin/exam-images/<str:filename>", app_admin.exam_library_image, name="admin_exam_library_image"),
     path("delegates/search/", views_admin.admin_delegate_search, name="admin_delegate_search"),
     path("app-admin/dashboard/", views_admin.admin_dashboard, name="admin_dashboard"),
     path("app-admin/api/courses-today/", views_admin.api_courses_today, name="api_courses_today"),
