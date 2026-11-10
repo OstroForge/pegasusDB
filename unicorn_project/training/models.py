@@ -1000,9 +1000,11 @@ class DelegateRegister(models.Model):
         return (self.certificate_name or self.name or "").strip()
 
     def save(self, *args, **kwargs):
-        # Proper case the name
+        # Proper case the name, keeping the capital after a hyphen or apostrophe.
         if self.name:
-            self.name = " ".join(w.capitalize() for w in self.name.strip().split())
+            from .utils.names import title_case_person_name
+
+            self.name = title_case_person_name(self.name)
         super().save(*args, **kwargs)
 
     class Meta:

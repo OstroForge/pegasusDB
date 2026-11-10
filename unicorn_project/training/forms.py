@@ -7,6 +7,7 @@ from django.forms import inlineformset_factory, BaseInlineFormSet
 from django.utils import timezone
 from datetime import date
 from . import models as m
+from .utils.names import title_case_person_name
 
 from .models import (
     AccidentReport,
@@ -899,9 +900,7 @@ class PublicDelegateRegisterForm(DelegateRegisterForm):
                     f"Registration could not be submitted because your {missing_name_parts[0]} is required.",
                 )
         else:
-            cleaned_data["name"] = " ".join(
-                part.capitalize() for part in f"{first} {surname}".split()
-            )
+            cleaned_data["name"] = title_case_person_name(f"{first} {surname}")
 
         if self.show_register_date:
             self._combine_partial_date(
@@ -944,7 +943,7 @@ class DelegateRegisterAdminForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Please enter both a first name and a surname."
             )
-        return " ".join(part.capitalize() for part in parts)
+        return title_case_person_name(" ".join(parts))
 
 class DelegateRegisterInstructorForm(forms.ModelForm):
     # Keep radios – this guarantees the widget even if Meta changes
@@ -980,7 +979,7 @@ class DelegateRegisterInstructorForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Please enter both a first name and a surname."
             )
-        return " ".join(part.capitalize() for part in parts)
+        return title_case_person_name(" ".join(parts))
 
 class BookingNotesForm(forms.ModelForm):
     class Meta:

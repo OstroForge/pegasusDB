@@ -35,8 +35,8 @@
       data-inbox-poll-interval="{{ INBOX_NOTIFY_POLL_MS }}"
     {% endif %}>
 
-  {# Mobile top bar (only < lg) #}
-  <header class="d-lg-none d-flex align-items-center justify-content-between bg-unicorn text-white px-3 py-2 border-bottom">
+  {# Top bar with the menu button. Hidden only on desktop (1400px and wider). #}
+  <header class="d-xxl-none d-flex align-items-center justify-content-between bg-unicorn text-white px-3 py-2 border-bottom">
     <button class="btn btn-outline-light btn-sm flex-shrink-0" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar">
       <i class="bi bi-list"></i>
     </button>
@@ -49,13 +49,13 @@
   {# MAIN FLEX ROW: sidebar (left) + content (right) #}
   <div class="d-flex flex-grow-1">
 
-    {# LEFT: Sidebar (offcanvas on mobile, static on lg+) #}
+    {# LEFT: Sidebar (overlay until desktop, static from 1400px) #}
     <aside id="sidebar"
-           class="sidebar offcanvas-lg offcanvas-start bg-unicorn text-white p-0 border-end vh-100 sticky-lg-top"
+           class="sidebar offcanvas-xxl offcanvas-start bg-unicorn text-white p-0 border-end vh-100 sticky-xxl-top"
            tabindex="-1" aria-labelledby="sidebarLabel">
 
-      {# Offcanvas header (mobile only) #}
-      <div class="offcanvas-header d-lg-none bg-unicorn text-white">
+      {# Offcanvas header (hidden once the sidebar is pinned on desktop) #}
+      <div class="offcanvas-header d-xxl-none bg-unicorn text-white">
         <div class="d-flex align-items-center gap-2">
           <img src="{% static 'training/img/' %}{{ current_logo }}" height="36" alt="Unicorn logo"{% if current_logo_label %} title="{{ current_logo_label }}"{% endif %}>
           <strong id="sidebarLabel">Unicorn</strong>
@@ -482,7 +482,7 @@
       document.documentElement.style.setProperty('--sidebar-active-bg', contrast.active);
       document.documentElement.style.setProperty('--sidebar-border-color', contrast.border);
 
-      document.querySelectorAll('.sidebar, .sidebar.offcanvas, .sidebar.offcanvas-lg, .bg-unicorn, .offcanvas-header.d-lg-none').forEach(function (el) {
+      document.querySelectorAll('.sidebar, .sidebar.offcanvas, .sidebar.offcanvas-xxl, .bg-unicorn, .offcanvas-header.d-xxl-none').forEach(function (el) {
         el.style.backgroundColor = theme.bg;
         el.style.color = contrast.text;
       });

@@ -197,7 +197,8 @@ html[data-sidebar-theme="charcoal"] {
 /* FORCE SIDEBAR BACKGROUND — OVERRIDES EVERYTHING */
 .sidebar,
 .sidebar.offcanvas,
-.sidebar.offcanvas-lg {
+.sidebar.offcanvas-lg,
+.sidebar.offcanvas-xxl {
     background-color: var(--unicorn-red) !important;
 }
 
@@ -212,15 +213,15 @@ html[data-sidebar-theme="charcoal"] {
   flex-direction: column;
 }
 
-@media (min-width: 992px) {
-  .sidebar.offcanvas-lg {
+@media (min-width: 1400px) {
+  .sidebar.offcanvas-xxl {
     position: sticky !important;
     top: 0;
     visibility: visible !important;
     transform: none !important;
   }
 
-  .sidebar.offcanvas-lg .offcanvas-body {
+  .sidebar.offcanvas-xxl .offcanvas-body {
     min-height: 100%;
     padding: 1rem !important;
   }
@@ -237,12 +238,12 @@ html[data-sidebar-theme="charcoal"] {
   }
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: 1399.98px) {
   .sidebar .sidebar-brand {
     display: none !important;
   }
 
-  .sidebar.offcanvas-lg {
+  .sidebar.offcanvas-xxl {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -631,7 +632,7 @@ main video,
 }
 
 /* Keep the mobile top bar compact */
-header.d-lg-none.bg-unicorn {
+header.d-xxl-none.bg-unicorn {
   flex-wrap: nowrap;
   gap: 0.5rem;
   min-height: 3rem;
@@ -639,8 +640,8 @@ header.d-lg-none.bg-unicorn {
   overflow: hidden;
 }
 
-header.d-lg-none.bg-unicorn .brand-logo,
-header.d-lg-none.bg-unicorn img {
+header.d-xxl-none.bg-unicorn .brand-logo,
+header.d-xxl-none.bg-unicorn img {
   width: auto !important;
   height: 36px !important;
   max-height: 36px !important;
@@ -648,7 +649,7 @@ header.d-lg-none.bg-unicorn img {
   object-fit: contain;
 }
 
-header.d-lg-none.bg-unicorn strong {
+header.d-xxl-none.bg-unicorn strong {
   white-space: nowrap;
   font-size: 1rem;
 }

@@ -10,7 +10,7 @@ if(e.target && e.target.name==='business'){
   const sidebar = document.getElementById('sidebar');
   if (!sidebar || typeof bootstrap === 'undefined') return;
 
-  const mobileQuery = window.matchMedia('(max-width: 991.98px)');
+  const mobileQuery = window.matchMedia('(max-width: 1399.98px)');
 
   function sidebarOffcanvas() {
     return bootstrap.Offcanvas.getOrCreateInstance(sidebar);
