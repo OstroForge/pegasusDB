@@ -18,9 +18,15 @@
       Showing {{ results|length }} delegate{{ results|length|pluralize }} (all courses).
     {% endif %}
   </p>
-  <button id="clear-all-filters" class="btn btn-sm btn-outline-secondary mb-2">
-  Clear all filters
-</button>
+  <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+    <button id="clear-all-filters" class="btn btn-sm btn-outline-secondary" type="button">
+      Clear all filters
+    </button>
+    <div class="form-check mb-0">
+      <input class="form-check-input" type="checkbox" id="same-name-only">
+      <label class="form-check-label" for="same-name-only">Show delegates who share a name</label>
+    </div>
+  </div>
 
   <div class="table-responsive mt-3">
   <table class="table table-hover align-middle delegate-table">
@@ -155,6 +161,11 @@
     });
 
     const filters = Array.from(document.querySelectorAll('.column-filter'));
+    const sameNameBox = document.getElementById('same-name-only');
+
+    function nameKey(row) {
+      return (row.cells[0]?.innerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
 
     function normaliseDate(str) {
       // Converts dd/mm/yyyy → yyyy-mm-dd for matching
@@ -166,9 +177,34 @@
     }
 
     function applyFilters() {
-      const rows = Array.from(table.tBodies[0].rows);
-      let visibleIndex = 0;
+      const body = table.tBodies[0];
+      const rows = Array.from(body.rows);
+      rows.forEach(function (row, index) {
+        if (!row.dataset.originalIndex) row.dataset.originalIndex = String(index);
+      });
 
+      const sharedNames = new Set();
+      if (sameNameBox && sameNameBox.checked) {
+        const counts = {};
+        rows.forEach(function (row) {
+          const key = nameKey(row);
+          counts[key] = (counts[key] || 0) + 1;
+        });
+        Object.keys(counts).forEach(function (key) {
+          if (counts[key] > 1) sharedNames.add(key);
+        });
+        rows.sort(function (a, b) {
+          return nameKey(a).localeCompare(nameKey(b))
+            || Number(a.dataset.originalIndex) - Number(b.dataset.originalIndex);
+        });
+      } else {
+        rows.sort(function (a, b) {
+          return Number(a.dataset.originalIndex) - Number(b.dataset.originalIndex);
+        });
+      }
+      rows.forEach(function (row) { body.appendChild(row); });
+
+      let visibleIndex = 0;
       rows.forEach(function (row) {
         let visible = true;
 
@@ -188,6 +224,10 @@
           }
         });
 
+        if (visible && sameNameBox && sameNameBox.checked && !sharedNames.has(nameKey(row))) {
+          visible = false;
+        }
+
         if (visible) {
           row.style.display = '';
           row.classList.toggle('table-alt-row', visibleIndex % 2 === 1);
@@ -206,6 +246,10 @@
     filters.forEach(function (input) {
       input.addEventListener('input', applyFilters);
     });
+
+    if (sameNameBox) {
+      sameNameBox.addEventListener('change', applyFilters);
+    }
 
     // --- Clear all filters button ---
     const clearAllBtn = document.getElementById('clear-all-filters');
