@@ -21,19 +21,24 @@
 
 {% if similar %}
 <div class="alert alert-warning">
-  <div class="mb-2">A booking already exists for this course, date and instructor:</div>
-  <ul class="mb-0">
+  <div class="mb-2">A booking already exists for this course, date and instructor. New names can be added to it.</div>
+  {% if similar|length == 1 %}
+  <div>
+    <a href="{% url 'admin_booking_edit' similar.0.pk %}">{{ similar.0.course_reference }}</a>
+    — {{ similar.0.business.name }}
+  </div>
+  {% else %}
+  <label class="form-label" for="id_existing_booking">Add the new names to</label>
+  <select name="existing_booking" id="id_existing_booking" class="form-select" form="matrix-import-form">
     {% for booking in similar %}
-    <li>
-      <a href="{% url 'admin_booking_edit' booking.pk %}">{{ booking.course_reference }}</a>
-      — {{ booking.business.name }}
-    </li>
+    <option value="{{ booking.pk }}" {% if form.existing_booking.value|stringformat:"s" == booking.pk|stringformat:"s" %}selected{% endif %}>{{ booking.course_reference }} — {{ booking.business.name }}</option>
     {% endfor %}
-  </ul>
+  </select>
+  {% endif %}
 </div>
 {% endif %}
 
-<form method="post" class="mb-4">
+<form method="post" class="mb-4" id="matrix-import-form">
   {% csrf_token %}
   {% if form.non_field_errors %}
   <div class="alert alert-danger">
@@ -135,6 +140,11 @@
           <td>
             <strong>{{ row.name }}</strong>
             <div class="text-muted small">{{ row.ticked }} of {{ row.skills }} skills ticked</div>
+            {% if similar %}
+            <div class="small name-state" data-name="{{ row.name_key }}">
+              {% if row.already %}Already on this course{% else %}New name{% endif %}
+            </div>
+            {% endif %}
           </td>
           <td>{{ row.result }}</td>
           <td>
@@ -155,18 +165,21 @@
     </table>
   </div>
 
-  {% if similar %}
-  <div class="form-check mb-3">
-    <input class="form-check-input" type="checkbox" name="confirm_duplicate" id="confirm_duplicate" value="1">
-    <label class="form-check-label" for="confirm_duplicate">Import another booking anyway</label>
-  </div>
+  {% if similar|length == 1 %}
+  <input type="hidden" name="existing_booking" value="{{ similar.0.pk }}">
   {% endif %}
 
-  <button class="btn btn-primary" type="submit">Import into the database</button>
+  {% if similar %}
+  <button class="btn btn-primary" type="submit" name="import_target" value="add">Add new names to this booking</button>
+  <button class="btn btn-outline-primary" type="submit" name="import_target" value="new">Create a separate booking</button>
+  {% else %}
+  <button class="btn btn-primary" type="submit" name="import_target" value="new">Import into the database</button>
+  {% endif %}
   <button class="btn btn-outline-secondary" type="submit" name="cancel" value="1" formnovalidate>Start again</button>
 </form>
 
 {{ locations|json_script:"location-data" }}
+{{ names_by_booking|json_script:"existing-names" }}
 <script>
 (function () {
   const locations = JSON.parse(document.getElementById("location-data").textContent);
@@ -219,6 +232,18 @@
       suggested = next;
     });
   }
+
+  const existingNames = JSON.parse(document.getElementById("existing-names").textContent || "{}");
+  const bookingSelect = document.getElementById("id_existing_booking");
+  function markNames() {
+    if (!bookingSelect) return;
+    const names = new Set(existingNames[bookingSelect.value] || []);
+    document.querySelectorAll(".name-state").forEach(function (node) {
+      const already = names.has(node.dataset.name);
+      node.textContent = already ? "Already on this course" : "New name";
+    });
+  }
+  if (bookingSelect) bookingSelect.addEventListener("change", markNames);
 })();
 </script>
 {% endblock %}

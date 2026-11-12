@@ -24,6 +24,10 @@ def _norm(value: str) -> str:
     return " ".join((value or "").replace("\n", " ").split()).casefold()
 
 
+def delegate_name_key(name: str) -> str:
+    return " ".join((name or "").split()).casefold()
+
+
 def reference_with_course_code(course_type, reference: str) -> str:
     """Put the course short code at the start of a typed reference."""
     code = ((getattr(course_type, "code", None) or "COURSE").strip() or "COURSE").upper()
@@ -125,35 +129,15 @@ def import_assessment_matrix(*, course_type, course_date, instructor, business, 
         instructor=instructor,
     )
 
-    cache: dict = {}
-    for skill in skills:
-        competency_for_skill(course_type, skill, cache=cache)
-
-    for person in delegates:
-        register = DelegateRegister(
-            name=person["name"],
-            date_of_birth=person["date_of_birth"],
-            job_title=person["job_title"],
-            employee_id=person.get("employee_id") or "",
-            date=course_date,
-            instructor=instructor,
-            health_status=DelegateRegister.HealthStatus.FIT,
-            outcome=_outcome(person),
-            notes="Imported from an assessment matrix spreadsheet.",
-            booking_day=day,
-        )
-        register.save()
-        for skill, ticked in (person.get("ticks") or {}).items():
-            competency = competency_for_skill(course_type, skill, cache=cache)
-            CompetencyAssessment.objects.create(
-                register=register,
-                course_competency=competency,
-                level=AssessmentLevel.COMPETENT if ticked else AssessmentLevel.NOT_ASSESSED,
-                is_locked=False,
-                source_note="Imported from assessment matrix",
-                assessed_by=instructor,
-                assessed_at=completed_at,
-            )
+    _write_delegate_registers(
+        booking=booking,
+        day=day,
+        instructor=instructor,
+        course_date=course_date,
+        delegates=delegates,
+        skills=skills,
+        completed_at=completed_at,
+    )
 
     if mark_invoice_paid:
         Invoice.objects.create(
@@ -170,3 +154,70 @@ def import_assessment_matrix(*, course_type, course_date, instructor, business, 
         )
 
     return booking
+
+
+def _write_delegate_registers(*, booking, day, instructor, course_date, delegates, skills, completed_at, skip_existing=False):
+    existing = set()
+    if skip_existing:
+        existing = {
+            delegate_name_key(name)
+            for name in DelegateRegister.objects.filter(booking_day__booking=booking).values_list("name", flat=True)
+        }
+    cache: dict = {}
+    for skill in skills:
+        competency_for_skill(booking.course_type, skill, cache=cache)
+    added = []
+    for person in delegates:
+        key = delegate_name_key(person["name"])
+        if key in existing:
+            continue
+        register = DelegateRegister(
+            name=person["name"],
+            date_of_birth=person["date_of_birth"],
+            job_title=person["job_title"],
+            employee_id=person.get("employee_id") or "",
+            date=course_date,
+            instructor=instructor,
+            health_status=DelegateRegister.HealthStatus.FIT,
+            outcome=_outcome(person),
+            notes="Imported from an assessment matrix spreadsheet.",
+            booking_day=day,
+        )
+        register.save()
+        existing.add(delegate_name_key(register.name))
+        for skill, ticked in (person.get("ticks") or {}).items():
+            competency = competency_for_skill(booking.course_type, skill, cache=cache)
+            CompetencyAssessment.objects.create(
+                register=register,
+                course_competency=competency,
+                level=AssessmentLevel.COMPETENT if ticked else AssessmentLevel.NOT_ASSESSED,
+                is_locked=False,
+                source_note="Imported from assessment matrix",
+                assessed_by=instructor,
+                assessed_at=completed_at,
+            )
+        added.append(register)
+    return added
+
+
+@transaction.atomic
+def add_delegates_to_booking(*, booking, instructor, course_date, delegates, skills):
+    """Add spreadsheet names that are not already on this booking. Does not email anyone."""
+    day = booking.days.filter(date=course_date).first()
+    if day is None:
+        day = BookingDay.objects.create(
+            booking=booking,
+            date=course_date,
+            instructor=instructor,
+        )
+    completed_at = timezone.make_aware(datetime.combine(course_date, time(17, 0)))
+    return _write_delegate_registers(
+        booking=booking,
+        day=day,
+        instructor=instructor,
+        course_date=course_date,
+        delegates=delegates,
+        skills=skills,
+        completed_at=completed_at,
+        skip_existing=True,
+    )

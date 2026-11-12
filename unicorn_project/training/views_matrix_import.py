@@ -3,11 +3,19 @@ from datetime import date
 from django import forms
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
-from .models import Booking, Business, CourseCompetency, CourseType, Personnel, TrainingLocation
-from .services.matrix_import import ensure_business, ensure_location, import_assessment_matrix, reference_with_course_code
+from .models import Booking, Business, CourseCompetency, CourseType, DelegateRegister, Personnel, TrainingLocation
+from .services.matrix_import import (
+    add_delegates_to_booking,
+    delegate_name_key,
+    ensure_business,
+    ensure_location,
+    import_assessment_matrix,
+    reference_with_course_code,
+)
 from .utils.assessment_matrix_sheet import course_code_from_title, read_assessment_matrix
 from .views_admin import admin_required
 
@@ -117,8 +125,9 @@ class MatrixImportConfirmForm(forms.Form):
         widget=forms.TextInput(attrs={"class": "form-control", "maxlength": "40"}),
     )
 
-    def __init__(self, payload, *args, **kwargs):
+    def __init__(self, payload, matching_bookings=None, *args, **kwargs):
         self.payload = payload
+        self.matching_bookings = list(matching_bookings or [])
         super().__init__(*args, **kwargs)
         self.fields["course_type"].queryset = CourseType.objects.order_by("name")
         self.fields["instructor"].queryset = Personnel.objects.order_by("name")
@@ -134,6 +143,15 @@ class MatrixImportConfirmForm(forms.Form):
             for item in TrainingLocation.objects.select_related("business").order_by("business__name", "name")
         ]
         self.fields["location"].choices = location_choices
+        self.fields["existing_booking"] = forms.ChoiceField(
+            required=False,
+            choices=[("", "")] + [
+                (str(booking.pk), f"{booking.course_reference} — {booking.business.name}")
+                for booking in self.matching_bookings
+            ],
+        )
+        if not self.is_bound and self.matching_bookings:
+            self.fields["existing_booking"].initial = str(self.matching_bookings[0].pk)
 
         for index, person in enumerate(payload["delegates"]):
             self.fields[f"dob_{index}"] = forms.DateField(
@@ -156,24 +174,50 @@ class MatrixImportConfirmForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        business_choice = cleaned.get("business")
-        if business_choice == NEW and not (cleaned.get("new_business_name") or "").strip():
-            self.add_error("new_business_name", "Enter the business name.")
-        location_choice = cleaned.get("location") or NEW
-        if business_choice == NEW:
-            location_choice = NEW
-            cleaned["location"] = NEW
-        if location_choice == NEW and not (cleaned.get("new_location_name") or "").strip():
-            self.add_error("new_location_name", "Enter the location name.")
-        if business_choice and business_choice != NEW and location_choice not in ("", NEW):
-            location = TrainingLocation.objects.filter(pk=location_choice, business_id=business_choice).first()
-            if not location:
-                self.add_error("location", "Choose a location that belongs to this business, or create a new one.")
+        match_ids = {str(booking.pk) for booking in self.matching_bookings}
+        target = (self.data.get("import_target") or "").strip() if self.is_bound else ""
+        if target not in {"add", "new"}:
+            target = "add" if match_ids else "new"
+        if target == "add" and not match_ids:
+            target = "new"
+        chosen = (cleaned.get("existing_booking") or "").strip()
+        if target == "add" and not chosen and len(self.matching_bookings) == 1:
+            chosen = str(self.matching_bookings[0].pk)
+        if target == "add" and chosen not in match_ids:
+            self.add_error("existing_booking", "Choose the booking to add these names to.")
+        cleaned["import_target"] = target
+        cleaned["existing_booking"] = chosen
+
+        existing_names = set()
+        if target == "add" and chosen in match_ids:
+            existing_names = {
+                delegate_name_key(name)
+                for name in DelegateRegister.objects.filter(
+                    booking_day__booking_id=chosen
+                ).values_list("name", flat=True)
+            }
+
+        if target == "new":
+            business_choice = cleaned.get("business")
+            if business_choice == NEW and not (cleaned.get("new_business_name") or "").strip():
+                self.add_error("new_business_name", "Enter the business name.")
+            location_choice = cleaned.get("location") or NEW
+            if business_choice == NEW:
+                location_choice = NEW
+                cleaned["location"] = NEW
+            if location_choice == NEW and not (cleaned.get("new_location_name") or "").strip():
+                self.add_error("new_location_name", "Enter the location name.")
+            if business_choice and business_choice != NEW and location_choice not in ("", NEW):
+                location = TrainingLocation.objects.filter(pk=location_choice, business_id=business_choice).first()
+                if not location:
+                    self.add_error("location", "Choose a location that belongs to this business, or create a new one.")
 
         default_job = (cleaned.get("default_job_title") or "").strip()
         use_unknown_dob = bool(cleaned.get("unknown_dob"))
         today = date.today()
         for index, person in enumerate(self.payload["delegates"]):
+            if target == "add" and delegate_name_key(person["name"]) in existing_names:
+                continue
             field_name = f"dob_{index}"
             dob = cleaned.get(field_name)
             raw_dob = (self.data.get(field_name) or "").strip() if self.is_bound else ""
@@ -192,20 +236,21 @@ class MatrixImportConfirmForm(forms.Form):
                 self.add_error(f"job_{index}", f"Enter a job title for {person['name']}, or a job title for anyone left blank.")
             cleaned[f"job_{index}"] = job
 
-        reference = reference_with_course_code(cleaned.get("course_type"), cleaned.get("course_reference") or "")
-        cleaned["course_reference"] = reference
-        if len(reference) > 40:
-            self.add_error("course_reference", "That reference is too long once the course code is added.")
-        elif reference and Booking.objects.filter(course_reference__iexact=reference).exists():
-            self.add_error("course_reference", "That course reference is already in use.")
+        if target == "new":
+            reference = reference_with_course_code(cleaned.get("course_type"), cleaned.get("course_reference") or "")
+            cleaned["course_reference"] = reference
+            if len(reference) > 40:
+                self.add_error("course_reference", "That reference is too long once the course code is added.")
+            elif reference and Booking.objects.filter(course_reference__iexact=reference).exists():
+                self.add_error("course_reference", "That course reference is already in use.")
 
-        if cleaned.get("invoice_paid") and cleaned.get("invoice_amount") is None:
-            course_type = cleaned.get("course_type")
-            default_fee = getattr(course_type, "default_instructor_fee", None) if course_type else None
-            if default_fee is None:
-                self.add_error("invoice_amount", "Enter the invoice amount to mark it as paid.")
-            else:
-                cleaned["invoice_amount"] = default_fee
+            if cleaned.get("invoice_paid") and cleaned.get("invoice_amount") is None:
+                course_type = cleaned.get("course_type")
+                default_fee = getattr(course_type, "default_instructor_fee", None) if course_type else None
+                if default_fee is None:
+                    self.add_error("invoice_amount", "Enter the invoice amount to mark it as paid.")
+                else:
+                    cleaned["invoice_amount"] = default_fee
         return cleaned
 
 
@@ -213,13 +258,12 @@ def _matching_bookings(course_type_id, course_date, instructor_id):
     if not (course_type_id and course_date and instructor_id):
         return Booking.objects.none()
     return (
-        Booking.objects.filter(
-            course_type_id=course_type_id,
-            course_date=course_date,
-            instructor_id=instructor_id,
-        )
+        Booking.objects.filter(course_type_id=course_type_id, instructor_id=instructor_id)
+        .filter(Q(course_date=course_date) | Q(days__date=course_date))
         .exclude(status="cancelled")
+        .distinct()
         .select_related("business", "course_type")
+        .prefetch_related("days__registers")
         .order_by("course_reference")
     )
 
@@ -294,66 +338,113 @@ def matrix_import_confirm(request):
         request.session.pop(SESSION_KEY, None)
         return redirect("admin_matrix_import")
 
+    if request.method == "POST":
+        matches = _matching_bookings(
+            request.POST.get("course_type"),
+            request.POST.get("course_date"),
+            request.POST.get("instructor"),
+        )
+        form_initial = None
+    else:
+        form_initial = _initial_from_payload(payload)
+        matches = _matching_bookings(
+            form_initial.get("course_type"),
+            form_initial.get("course_date"),
+            form_initial.get("instructor"),
+        )
     form = MatrixImportConfirmForm(
         payload,
+        matching_bookings=matches,
         data=request.POST if request.method == "POST" else None,
-        initial=None if request.method == "POST" else _initial_from_payload(payload),
+        initial=form_initial,
     )
     if request.method == "POST" and form.is_valid():
         course_type = form.cleaned_data["course_type"]
         course_date = form.cleaned_data["course_date"]
         instructor = form.cleaned_data["instructor"]
-        already = list(_matching_bookings(course_type.pk, course_date, instructor.pk))
-        if already and request.POST.get("confirm_duplicate") != "1":
-            form.add_error(
-                None,
-                "A booking already exists for this course, date and instructor. Tick the confirmation box to import another one.",
-            )
-        else:
-            business_choice = form.cleaned_data["business"]
-            location_choice = form.cleaned_data.get("location") or NEW
-            people = []
-            for index, person in enumerate(payload["delegates"]):
-                people.append({
-                    **person,
-                    "name": person["name"][:100],
-                    "date_of_birth": form.cleaned_data[f"dob_{index}"],
-                    "job_title": form.cleaned_data[f"job_{index}"],
-                    "employee_id": (form.cleaned_data.get(f"emp_{index}") or "").strip(),
-                })
+        people = []
+        for index, person in enumerate(payload["delegates"]):
+            people.append({
+                **person,
+                "name": person["name"][:100],
+                "date_of_birth": form.cleaned_data.get(f"dob_{index}"),
+                "job_title": form.cleaned_data.get(f"job_{index}") or "",
+                "employee_id": (form.cleaned_data.get(f"emp_{index}") or "").strip(),
+            })
+        if form.cleaned_data.get("import_target") == "add":
+            booking = Booking.objects.get(pk=form.cleaned_data["existing_booking"])
             with transaction.atomic():
-                if business_choice == NEW:
-                    business = ensure_business(form.cleaned_data["new_business_name"])
-                else:
-                    business = Business.objects.get(pk=business_choice)
-                if location_choice == NEW:
-                    location = ensure_location(business, form.cleaned_data["new_location_name"])
-                else:
-                    location = TrainingLocation.objects.get(pk=location_choice, business=business)
-                booking = import_assessment_matrix(
-                    course_type=course_type,
-                    course_date=course_date,
+                added = add_delegates_to_booking(
+                    booking=booking,
                     instructor=instructor,
-                    business=business,
-                    location=location,
+                    course_date=course_date,
                     delegates=people,
                     skills=payload["skills"],
-                    invoice_amount=form.cleaned_data.get("invoice_amount"),
-                    mark_invoice_paid=bool(form.cleaned_data.get("invoice_paid")),
-                    course_reference=form.cleaned_data.get("course_reference") or "",
                 )
             request.session.pop(SESSION_KEY, None)
-            messages.success(
-                request,
-                f"Imported {len(people)} delegates onto {booking.course_reference}.",
-            )
+            if added:
+                messages.success(
+                    request,
+                    f"Added {len(added)} new delegates to {booking.course_reference}.",
+                )
+            else:
+                messages.info(
+                    request,
+                    f"Everyone in this spreadsheet is already on {booking.course_reference}.",
+                )
             return redirect("admin_booking_edit", pk=booking.pk)
+
+        business_choice = form.cleaned_data["business"]
+        location_choice = form.cleaned_data.get("location") or NEW
+        with transaction.atomic():
+            if business_choice == NEW:
+                business = ensure_business(form.cleaned_data["new_business_name"])
+            else:
+                business = Business.objects.get(pk=business_choice)
+            if location_choice == NEW:
+                location = ensure_location(business, form.cleaned_data["new_location_name"])
+            else:
+                location = TrainingLocation.objects.get(pk=location_choice, business=business)
+            booking = import_assessment_matrix(
+                course_type=course_type,
+                course_date=course_date,
+                instructor=instructor,
+                business=business,
+                location=location,
+                delegates=people,
+                skills=payload["skills"],
+                invoice_amount=form.cleaned_data.get("invoice_amount"),
+                mark_invoice_paid=bool(form.cleaned_data.get("invoice_paid")),
+                course_reference=form.cleaned_data.get("course_reference") or "",
+            )
+        request.session.pop(SESSION_KEY, None)
+        messages.success(
+            request,
+            f"Imported {len(people)} delegates onto {booking.course_reference}.",
+        )
+        return redirect("admin_booking_edit", pk=booking.pk)
+
+    similar = list(matches)
+    selected_id = (request.POST.get("existing_booking") or "").strip() if form.is_bound else ""
+    if not selected_id and similar:
+        selected_id = str(similar[0].pk)
+    names_by_booking = {}
+    for booking in similar:
+        names_by_booking[str(booking.pk)] = sorted({
+            delegate_name_key(reg.name)
+            for day in booking.days.all()
+            for reg in day.registers.all()
+        })
+    selected_names = set(names_by_booking.get(selected_id, []))
 
     rows = []
     for index, person in enumerate(payload["delegates"]):
+        name_key = delegate_name_key(person["name"])
         rows.append({
             "index": index,
             "name": person["name"],
+            "name_key": name_key,
+            "already": name_key in selected_names,
             "result": _result_label(person),
             "ticked": sum(1 for value in person["ticks"].values() if value),
             "skills": len(person["ticks"]),
@@ -363,16 +454,10 @@ def matrix_import_confirm(request):
         })
 
     course_type_id = None
-    course_date = payload.get("course_date")
-    instructor_id = None
     if form.is_bound:
         course_type_id = request.POST.get("course_type")
-        course_date = request.POST.get("course_date") or course_date
-        instructor_id = request.POST.get("instructor")
     else:
         course_type_id = form.initial.get("course_type")
-        instructor_id = form.initial.get("instructor")
-    similar = list(_matching_bookings(course_type_id, course_date, instructor_id)[:8])
 
     known = {_norm(name) for name in CourseCompetency.objects.filter(
         course_type_id=course_type_id
@@ -385,6 +470,7 @@ def matrix_import_confirm(request):
         "payload": payload,
         "rows": rows,
         "similar": similar,
+        "names_by_booking": names_by_booking,
         "retired": retired,
         "locations": _location_map(),
         "new_value": NEW,
