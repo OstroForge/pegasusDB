@@ -93,7 +93,7 @@
           {% for b in in_progress %}
           <tr data-href="{% url 'instructor_booking_detail' pk=b.id %}" tabindex="0" role="button" aria-label="Open booking {{ b.course_reference|default:b.id }}">
             <td>{% include "partials/booking_dates_cell.html" with dates_display=b.dates_display dates_nonconsecutive=b.dates_nonconsecutive %}</td>
-            <td class="nowrap">{{ b.course_reference|default:"—" }}</td>
+            <td class="nowrap">{{ b.course_reference|default:"—" }}{% if b.is_imported %} <span class="badge bg-secondary">Imported</span>{% endif %}</td>
             <td class="nowrap bookings-hide-sm">{{ b.start_time|time:"H:i" }}</td>
             <td>{{ b.course_type.name }}</td>
             <td class="bookings-hide-sm">{{ b.business.name }}</td>
@@ -137,7 +137,7 @@
           {% for b in awaiting %}
           <tr data-href="{% url 'instructor_booking_detail' pk=b.id %}" tabindex="0" role="button">
             <td>{% include "partials/booking_dates_cell.html" with dates_display=b.dates_display dates_nonconsecutive=b.dates_nonconsecutive %}</td>
-            <td class="nowrap">{{ b.course_reference|default:"—" }}</td>
+            <td class="nowrap">{{ b.course_reference|default:"—" }}{% if b.is_imported %} <span class="badge bg-secondary">Imported</span>{% endif %}</td>
             <td class="nowrap bookings-hide-sm">{{ b.start_time|time:"H:i" }}</td>
             <td>{{ b.course_type.name }}</td>
             <td class="bookings-hide-sm">{{ b.business.name }}</td>
@@ -181,7 +181,7 @@
           {% for b in scheduled %}
           <tr data-href="{% url 'instructor_booking_detail' pk=b.id %}" tabindex="0" role="button">
             <td>{% include "partials/booking_dates_cell.html" with dates_display=b.dates_display dates_nonconsecutive=b.dates_nonconsecutive %}</td>
-            <td class="nowrap">{{ b.course_reference|default:"—" }}</td>
+            <td class="nowrap">{{ b.course_reference|default:"—" }}{% if b.is_imported %} <span class="badge bg-secondary">Imported</span>{% endif %}</td>
             <td class="nowrap bookings-hide-sm">{{ b.start_time|time:"H:i" }}</td>
             <td>{{ b.course_type.name }}</td>
             <td class="bookings-hide-sm">{{ b.business.name }}</td>
@@ -224,7 +224,7 @@
           {% for b in closed_rows %}
           <tr data-href="{% url 'instructor_booking_detail' pk=b.id %}" tabindex="0" role="button">
             <td>{% include "partials/booking_dates_cell.html" with dates_display=b.dates_display dates_nonconsecutive=b.dates_nonconsecutive %}</td>
-            <td class="nowrap">{{ b.course_reference|default:"—" }}</td>
+            <td class="nowrap">{{ b.course_reference|default:"—" }}{% if b.is_imported %} <span class="badge bg-secondary">Imported</span>{% endif %}</td>
             <td>{{ b.course_type.name }}</td>
             <td class="bookings-hide-sm">{{ b.business.name }}</td>
             <td class="nowrap">
@@ -323,7 +323,7 @@
           {% for b in practice_bookings %}
           <tr data-href="{% url 'instructor_booking_detail' pk=b.id %}" tabindex="0" role="button">
             <td>{% include "partials/booking_dates_cell.html" with dates_display=b.dates_display dates_nonconsecutive=b.dates_nonconsecutive %}</td>
-            <td class="nowrap">{{ b.course_reference|default:"—" }}</td>
+            <td class="nowrap">{{ b.course_reference|default:"—" }}{% if b.is_imported %} <span class="badge bg-secondary">Imported</span>{% endif %}</td>
             <td class="nowrap bookings-hide-sm">{% if b.start_time %}{{ b.start_time|time:"H:i" }}{% else %}—{% endif %}</td>
             <td>{{ b.course_type.name }}</td>
             <td class="bookings-hide-sm">{{ b.business.name }}</td>

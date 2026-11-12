@@ -1051,6 +1051,7 @@ def booking_list(request):
             "invoice_status": inv_ctx,   # <<< NEW
             "instructor": (b.instructor.name if b.instructor else ""),
             "ref":        (b.course_reference or ""),
+            "imported":   bool(b.is_imported),
             "edit_url":   reverse("admin_booking_edit", args=[b.id]),
         })
 

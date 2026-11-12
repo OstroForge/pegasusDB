@@ -116,13 +116,19 @@
                 </ul>
             </details>
 
-            <details class="branch">
+            <details class="branch" {% if nav_admin_bookings_active %}open{% endif %}>
                 <summary><i class="bi bi-calendar2-check"></i> Bookings</summary>
                 <ul>
                     <li>
-                        <a class="leaf {% if nav_admin_bookings_active %}active{% endif %}"
+                        <a class="leaf {% if nav_admin_bookings_active and request.resolver_match.url_name != 'admin_matrix_import' and request.resolver_match.url_name != 'admin_matrix_import_confirm' %}active{% endif %}"
                            href="{% url 'admin_booking_list' %}">
                            <i class="bi bi-columns"></i> View / edit / add
+                        </a>
+                    </li>
+                    <li>
+                        <a class="leaf {% if request.resolver_match.url_name == 'admin_matrix_import' or request.resolver_match.url_name == 'admin_matrix_import_confirm' %}active{% endif %}"
+                           href="{% url 'admin_matrix_import' %}">
+                           <i class="bi bi-file-earmark-spreadsheet"></i> Import historic booking data
                         </a>
                     </li>
                 </ul>

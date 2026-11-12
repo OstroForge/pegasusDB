@@ -545,8 +545,12 @@ class Booking(models.Model):
         limit_choices_to={"is_optional": True},
     )
 
-    # generated reference
+    # generated reference, unless an imported course supplies its own
     course_reference = models.CharField(max_length=40, unique=True, blank=True)
+    is_imported = models.BooleanField(
+        default=False,
+        help_text="Set for courses brought in from an old assessment matrix.",
+    )
 
     precise_lat = models.FloatField(null=True, blank=True)
     precise_lng = models.FloatField(null=True, blank=True)

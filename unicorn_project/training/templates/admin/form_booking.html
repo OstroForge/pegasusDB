@@ -25,6 +25,9 @@
   {% if booking and booking.course_reference %}
     <span class="badge bg-light text-dark border">Ref: {{ booking.course_reference }}</span>
   {% endif %}
+  {% if booking and booking.is_imported %}
+    <span class="badge bg-secondary">Imported</span>
+  {% endif %}
   {% if booking %}
     {% with st=booking.status %}
       {% if st == "scheduled" %}

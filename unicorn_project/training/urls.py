@@ -14,6 +14,7 @@ from . import views_emergency_takeover as takeoverv
 from . import views_inbox as inboxv
 from . import views_public
 from . import views_telegram
+from . import views_matrix_import
 
 from .views_public import (
     delegate_exam_start,      # start (enter details / match register)
@@ -174,6 +175,8 @@ urlpatterns = [
 
     # Bookings (admin)
     path("app/admin/bookings/", app_admin.booking_list, name="admin_booking_list"),
+    path("app/admin/bookings/import-matrix/", views_matrix_import.matrix_import_upload, name="admin_matrix_import"),
+    path("app/admin/bookings/import-matrix/confirm/", views_matrix_import.matrix_import_confirm, name="admin_matrix_import_confirm"),
     path("app/admin/bookings/new/", app_admin.booking_form, name="admin_booking_new"),
     path("app/admin/bookings/<uuid:pk>/", app_admin.booking_form, name="admin_booking_edit"),
     path("admin/bookings/<uuid:pk>/invoice-pdf/", views_admin.admin_invoice_pdf, name="admin_invoice_pdf"),

@@ -4,7 +4,10 @@
   {% block content %}
   <h3 class="mb-3 d-flex align-items-center gap-2">
     {{ title }}
-    <a href="{{ create_url }}" class="btn btn-primary btn-sm ms-auto">
+    <a href="{% url 'admin_matrix_import' %}" class="btn btn-outline-primary btn-sm ms-auto">
+      <i class="bi bi-file-earmark-spreadsheet"></i> Import matrix
+    </a>
+    <a href="{{ create_url }}" class="btn btn-primary btn-sm">
       <i class="bi bi-plus-lg"></i> Add
     </a>
   </h3>
@@ -120,7 +123,10 @@
       </td>
 
       <!-- 6: Ref -->
-      <td>{{ row.ref }}</td>
+      <td>
+        {{ row.ref }}
+        {% if row.imported %}<span class="badge bg-secondary ms-1">Imported</span>{% endif %}
+      </td>
 
       <!-- 7: Invoice status -->
       <td>

@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">Check the matrix before importing</h3>
+
+<div class="alert alert-info">
+  Read from <strong>{{ payload.title|default:"the spreadsheet" }}</strong>.
+  {{ payload.delegates|length }} delegate{{ payload.delegates|length|pluralize }}.
+  Skills: {{ payload.skills|join:", " }}.
+  This writes a completed booking with one course day, the register and the assessment ticks.
+  It leaves email and Telegram alone.
+</div>
+
+{% if retired %}
+<div class="alert alert-secondary">
+  These skills are not on the current course and will be added as unused competencies, with the old ticks kept:
+  {{ retired|join:", " }}.
+</div>
+{% endif %}
+
+{% if similar %}
+<div class="alert alert-warning">
+  <div class="mb-2">A booking already exists for this course, date and instructor:</div>
+  <ul class="mb-0">
+    {% for booking in similar %}
+    <li>
+      <a href="{% url 'admin_booking_edit' booking.pk %}">{{ booking.course_reference }}</a>
+      — {{ booking.business.name }}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<form method="post" class="mb-4">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+  <div class="alert alert-danger">
+    {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <label class="form-label" for="id_course_type">Course</label>
+      <select name="course_type" id="id_course_type" class="form-select" required>
+        <option value="">---------</option>
+        {% for ct in form.course_type.field.queryset %}
+        <option value="{{ ct.pk }}" data-invoice-fee="{{ ct.default_instructor_fee|default_if_none:''|floatformat:2 }}" {% if form.course_type.value|stringformat:"s" == ct.pk|stringformat:"s" %}selected{% endif %}>{{ ct.name }}</option>
+        {% endfor %}
+      </select>
+      {% for error in form.course_type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.course_date.id_for_label }}">Course date</label>
+      {{ form.course_date }}
+      <div class="form-text">Spreadsheet date: {{ payload.course_date|default:"not found" }}</div>
+      {% for error in form.course_date.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.instructor.id_for_label }}">Instructor</label>
+      {{ form.instructor }}
+      <div class="form-text">Spreadsheet name: {{ payload.instructor|default:"not found" }}</div>
+      {% for error in form.instructor.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.business.id_for_label }}">Business</label>
+      {{ form.business }}
+      <div class="form-text">Spreadsheet location: {{ payload.location|default:"not found" }}</div>
+      {% for error in form.business.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6" id="new-business">
+      <label class="form-label" for="{{ form.new_business_name.id_for_label }}">New business name</label>
+      {{ form.new_business_name }}
+      {% for error in form.new_business_name.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.location.id_for_label }}">Training location</label>
+      {{ form.location }}
+      {% for error in form.location.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6" id="new-location">
+      <label class="form-label" for="{{ form.new_location_name.id_for_label }}">New location name</label>
+      {{ form.new_location_name }}
+      {% for error in form.new_location_name.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6">
+      <label class="form-label" for="{{ form.default_job_title.id_for_label }}">Job title for anyone left blank</label>
+      {{ form.default_job_title }}
+      {% for error in form.default_job_title.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.course_reference.id_for_label }}">Course reference</label>
+      {{ form.course_reference }}
+      <div class="form-text">The course short code is added at the start. Leave this blank and a reference is generated.</div>
+      {% for error in form.course_reference.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-4">
+      <label class="form-label" for="{{ form.invoice_amount.id_for_label }}">Invoice amount (£)</label>
+      {{ form.invoice_amount }}
+      <div class="form-text">Instructor invoice for this course.</div>
+      {% for error in form.invoice_amount.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-8 d-flex align-items-end">
+      <div class="form-check mb-2">
+        {{ form.invoice_paid }}
+        <label class="form-check-label" for="{{ form.invoice_paid.id_for_label }}">Mark the invoice as paid</label>
+      </div>
+      {% for error in form.invoice_paid.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-12">
+      <div class="form-check">
+        {{ form.unknown_dob }}
+        <label class="form-check-label" for="{{ form.unknown_dob.id_for_label }}">Use 01/01/1970 for anyone without a date of birth</label>
+      </div>
+      {% for error in form.unknown_dob.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Delegate</th>
+          <th>Result</th>
+          <th>Date of birth</th>
+          <th>Job title</th>
+          <th>Employee ID</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <strong>{{ row.name }}</strong>
+            <div class="text-muted small">{{ row.ticked }} of {{ row.skills }} skills ticked</div>
+          </td>
+          <td>{{ row.result }}</td>
+          <td>
+            {{ row.dob }}
+            {% for error in row.dob.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </td>
+          <td>
+            {{ row.job }}
+            {% for error in row.job.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </td>
+          <td>
+            {{ row.emp }}
+            {% for error in row.emp.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if similar %}
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="confirm_duplicate" id="confirm_duplicate" value="1">
+    <label class="form-check-label" for="confirm_duplicate">Import another booking anyway</label>
+  </div>
+  {% endif %}
+
+  <button class="btn btn-primary" type="submit">Import into the database</button>
+  <button class="btn btn-outline-secondary" type="submit" name="cancel" value="1" formnovalidate>Start again</button>
+</form>
+
+{{ locations|json_script:"location-data" }}
+<script>
+(function () {
+  const locations = JSON.parse(document.getElementById("location-data").textContent);
+  const business = document.getElementById("id_business");
+  const location = document.getElementById("id_location");
+  const newBusiness = document.getElementById("new-business");
+  const newLocation = document.getElementById("new-location");
+  const NEW = "{{ new_value }}";
+
+  function sync() {
+    const current = location.value;
+    const options = locations[business.value] || [];
+    location.replaceChildren();
+    const create = document.createElement("option");
+    create.value = NEW;
+    create.textContent = "Create a new location";
+    location.appendChild(create);
+    options.forEach(function (item) {
+      const opt = document.createElement("option");
+      opt.value = item.id;
+      opt.textContent = item.name;
+      location.appendChild(opt);
+    });
+    const allowed = options.some(function (item) { return item.id === current; });
+    location.value = allowed ? current : NEW;
+    newBusiness.hidden = business.value !== NEW;
+    newLocation.hidden = location.value !== NEW;
+  }
+
+  business.addEventListener("change", sync);
+  location.addEventListener("change", function () {
+    newLocation.hidden = location.value !== NEW;
+  });
+  sync();
+
+  const course = document.getElementById("id_course_type");
+  const amount = document.getElementById("id_invoice_amount");
+  function money(value) {
+    if (value === "" || value == null) return "";
+    const number = Number(value);
+    return Number.isFinite(number) ? number.toFixed(2) : "";
+  }
+  if (course && amount) {
+    let suggested = money(course.options[course.selectedIndex] && course.options[course.selectedIndex].dataset.invoiceFee);
+    if (amount.value === "") amount.value = suggested;
+    else amount.value = money(amount.value);
+    course.addEventListener("change", function () {
+      const next = money(course.options[course.selectedIndex] && course.options[course.selectedIndex].dataset.invoiceFee);
+      if (money(amount.value) === suggested) amount.value = next;
+      suggested = next;
+    });
+  }
+})();
+</script>
+{% endblock %}

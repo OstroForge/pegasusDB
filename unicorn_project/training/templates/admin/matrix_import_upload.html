@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">Import an assessment matrix</h3>
+
+<div class="card p-4" style="max-width: 42rem;">
+  <p>
+    Upload an old assessment matrix workbook. The next page reads the course, date, location,
+    instructor and ticks, then asks for the date of birth and job title of each delegate.
+    Saving creates a completed booking in this site’s database.
+  </p>
+  <p class="text-muted">
+    The spreadsheet needs the usual layout: date, location and instructor under their labels,
+    delegate names on the row above the skills, and a PASS? row.
+  </p>
+
+  {% if error %}
+  <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label class="form-label" for="spreadsheet">Assessment matrix (.xlsx)</label>
+    <input class="form-control mb-3" type="file" name="spreadsheet" id="spreadsheet" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+    <button class="btn btn-primary" type="submit">Read spreadsheet</button>
+    <a class="btn btn-outline-secondary" href="{% url 'admin_booking_list' %}">Back to bookings</a>
+  </form>
+</div>
+{% endblock %}

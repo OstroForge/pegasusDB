@@ -102,6 +102,8 @@ def set_active_role(session, role: str) -> None:
 
 ADMIN_BOOKING_URL_NAMES = frozenset({
     "admin_booking_list",
+    "admin_matrix_import",
+    "admin_matrix_import_confirm",
     "admin_booking_new",
     "admin_booking_edit",
     "admin_booking_delete",
