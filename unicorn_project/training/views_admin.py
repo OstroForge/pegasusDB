@@ -1586,17 +1586,10 @@ def booking_form(request, pk=None):
             )
 
             if booking_dates:
+                from .services.assessment_exams import attempts_for_booking
+
                 tmp = defaultdict(list)
-                attempts_qs = (
-                    ExamAttempt.objects
-                    .select_related("exam")
-                    .filter(
-                        exam__course_type=obj.course_type,
-                        instructor=obj.instructor,
-                        exam_date__in=booking_dates,
-                    )
-                    .order_by("exam_date", "id")
-                )
+                attempts_qs = attempts_for_booking(obj)
                 for att in attempts_qs:
                     seq = getattr(att.exam, "sequence", None) or getattr(att.exam, "id")
                     tmp[seq].append(att)

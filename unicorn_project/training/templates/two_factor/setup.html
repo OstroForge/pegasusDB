@@ -15,8 +15,8 @@
 
       <p><strong>Scan this QR code with your authenticator app:</strong></p>
       <div class="text-center mb-3">
-        {% if provisioning_uri %}
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ provisioning_uri|urlencode }}" alt="QR Code" class="img-fluid" style="max-width: 250px;">
+        {% if qr_data_url %}
+          <img src="{{ qr_data_url }}" alt="QR Code" class="img-fluid" style="max-width: 250px;">
         {% else %}
           <p class="text-muted">QR code could not be generated. Please try again.</p>
         {% endif %}

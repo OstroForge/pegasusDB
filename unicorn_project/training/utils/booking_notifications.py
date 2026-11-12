@@ -132,8 +132,8 @@ def notify_resend_telegram(booking):
     return notify_instructor_via_telegram(booking, "resend", force=True)
 
 
-def notify_resend_email(booking):
-    return notify_instructor_via_email(booking, "resend", force=True)
+def notify_resend_email(booking, *, recipient=None):
+    return notify_instructor_via_email(booking, "resend", force=True, recipient=recipient)
 
 
 def notify_resend(booking):
@@ -156,28 +156,71 @@ def notify_departure_reminder(booking, *, on_date, morning_today=False, travel_s
     telegram_ok = False
     email_ok = False
 
-    if (settings.TELEGRAM_BOT_TOKEN or "").strip() and instructor and (instructor.telegram_chat_id or "").strip():
-        if personnel_wants_notification(instructor, "departure_reminder", channel="telegram"):
-            if morning_today:
-                text = format_morning_today_reminder_message(booking, on_date)
-            else:
-                buffer_minutes = int(getattr(settings, "DEPARTURE_REMINDER_BUFFER_MINUTES", 30))
-                text = format_departure_reminder_message(
-                    booking,
-                    on_date,
-                    travel_seconds=int(travel_seconds or 0),
-                    buffer_minutes=buffer_minutes,
+    if (settings.TELEGRAM_BOT_TOKEN or "").strip():
+        from .telegram_today import (
+            format_qr_followup_message,
+            list_booking_qr_photos,
+            send_booking_qr_photos,
+        )
+
+        qr_photos = list_booking_qr_photos(booking, on_date)
+        if instructor and (instructor.telegram_chat_id or "").strip():
+            if personnel_wants_notification(instructor, "departure_reminder", channel="telegram"):
+                if morning_today:
+                    text = format_morning_today_reminder_message(booking, on_date)
+                else:
+                    buffer_minutes = int(getattr(settings, "DEPARTURE_REMINDER_BUFFER_MINUTES", 30))
+                    text = format_departure_reminder_message(
+                        booking,
+                        on_date,
+                        travel_seconds=int(travel_seconds or 0),
+                        buffer_minutes=buffer_minutes,
+                    )
+                if qr_photos:
+                    text = (
+                        text
+                        + "\n\n<b>Delegate QR codes</b> follow this message. "
+                        + "Tap <b>Open</b> on a code to open that form."
+                    )
+                message, error = send_telegram_message(instructor.telegram_chat_id, text)
+                telegram_ok = message is not None
+                if telegram_ok and qr_photos:
+                    send_booking_qr_photos(instructor.telegram_chat_id, booking, on_date)
+                TelegramNotification.objects.create(
+                    booking=booking,
+                    personnel=instructor,
+                    notification_type="departure_reminder",
+                    message_id=str(message.message_id) if message else "",
+                    success=telegram_ok,
+                    error_text=error or "",
                 )
-            message, error = send_telegram_message(instructor.telegram_chat_id, text)
-            telegram_ok = message is not None
+
+        day = booking.days.filter(date=on_date).select_related("instructor").first()
+        day_instructor = day.instructor if day and day.instructor_id else None
+        lead_id = instructor.pk if instructor else None
+        if (
+            qr_photos
+            and day_instructor
+            and day_instructor.pk != lead_id
+            and (day_instructor.telegram_chat_id or "").strip()
+            and personnel_wants_notification(day_instructor, "departure_reminder", channel="telegram")
+        ):
+            day_message, day_error = send_telegram_message(
+                day_instructor.telegram_chat_id,
+                format_qr_followup_message(booking),
+            )
+            day_ok = day_message is not None
+            if day_ok:
+                send_booking_qr_photos(day_instructor.telegram_chat_id, booking, on_date)
             TelegramNotification.objects.create(
                 booking=booking,
-                personnel=instructor,
+                personnel=day_instructor,
                 notification_type="departure_reminder",
-                message_id=str(message.message_id) if message else "",
-                success=telegram_ok,
-                error_text=error or "",
+                message_id=str(day_message.message_id) if day_message else "",
+                success=day_ok,
+                error_text=day_error or "",
             )
+            telegram_ok = telegram_ok or day_ok
 
     email_ok = notify_instructor_via_email(
         booking,

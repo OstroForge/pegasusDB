@@ -51,10 +51,20 @@ from .telegram_settings import (
 )
 from .telegram_today import (
     BOOKING_FEEDBACK_CALLBACK_PREFIX,
+    BOOKING_DOCS_CALLBACK_PREFIX,
+    BOOKING_QR_CALLBACK_PREFIX,
     BOOKING_REGISTER_CALLBACK_PREFIX,
+    booking_for_documents,
+    document_bookings_for_personnel,
+    documents_bookings_keyboard,
+    booking_feedback_form_url,
+    booking_on_date_for_personnel,
+    booking_register_form_url,
     bookings_on_date_for_personnel,
     feedback_qr_photo_and_caption,
     format_today_message,
+    list_booking_qr_photos,
+    qr_open_keyboard,
     registration_qr_photo_and_caption,
     telegram_qr_input_file,
     today_bookings_keyboard,
@@ -177,6 +187,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/requestcover — ask another instructor to cover one of your courses\n"
         "  (during request: tap buttons or /cancel to stop)\n"
         "/directions — address and map link for your next booking\n"
+        "/email — email the course documents (map, contacts, fees and QR codes) again\n"
+        "/qrcodes — all QR codes for today's course (registration, feedback, accident reports, exams)\n"
         "/registration — registration QR and link for today's course\n"
         "/feedback — feedback QR and link for today's course\n"
         "/settings — turn booking alerts on or off\n"
@@ -976,14 +988,7 @@ async def settings_toggle_callback(update: Update, context: ContextTypes.DEFAULT
         )
 
 
-async def _send_today_form_qr(context, chat_id, booking, *, form_kind, on_date):
-    if form_kind == "register":
-        png, caption = await sync_to_async(registration_qr_photo_and_caption)(booking, on_date)
-        filename = "register-qr.png"
-    else:
-        png, caption = await sync_to_async(feedback_qr_photo_and_caption)(booking, on_date)
-        filename = "feedback-qr.png"
-
+async def _send_qr_photo(context, chat_id, *, png, caption, filename, title, url):
     if not png:
         await context.bot.send_message(chat_id=chat_id, text=caption, parse_mode="HTML")
         return
@@ -993,7 +998,52 @@ async def _send_today_form_qr(context, chat_id, booking, *, form_kind, on_date):
         photo=telegram_qr_input_file(png, filename),
         caption=caption,
         parse_mode="HTML",
+        reply_markup=qr_open_keyboard(title, url) if url else None,
     )
+
+
+async def _send_today_form_qr(context, chat_id, booking, *, form_kind, on_date):
+    if form_kind == "register":
+        png, caption = await sync_to_async(registration_qr_photo_and_caption)(booking, on_date)
+        url = await sync_to_async(booking_register_form_url)(booking, on_date)
+        filename = "register-qr.png"
+        title = "Delegate registration"
+    else:
+        png, caption = await sync_to_async(feedback_qr_photo_and_caption)(booking, on_date)
+        url = await sync_to_async(booking_feedback_form_url)(booking, on_date)
+        filename = "feedback-qr.png"
+        title = "Course feedback"
+
+    await _send_qr_photo(
+        context,
+        chat_id,
+        png=png,
+        caption=caption,
+        filename=filename,
+        title=title,
+        url=url,
+    )
+
+
+async def _send_booking_qr_set(context, chat_id, booking, on_date):
+    photos = await sync_to_async(list_booking_qr_photos)(booking, on_date)
+    if not photos:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Could not build QR codes for this course.",
+        )
+        return
+
+    for photo in photos:
+        await _send_qr_photo(
+            context,
+            chat_id,
+            png=photo["png"],
+            caption=photo["caption"],
+            filename=photo["filename"],
+            title=photo["title"],
+            url=photo["url"],
+        )
 
 
 async def _today_form_command(update, context, *, form_kind):
@@ -1030,6 +1080,77 @@ async def _today_form_command(update, context, *, form_kind):
         chat_id=chat_id,
         text=prompt,
         reply_markup=keyboard,
+    )
+
+
+async def qrcodes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    personnel, chat_id = await _linked_personnel_or_reply(update)
+    if not personnel:
+        return
+
+    on_date = timezone.localdate()
+    bookings = await sync_to_async(list)(bookings_on_date_for_personnel(personnel, on_date))
+    if not bookings:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="You have no courses scheduled for today, so there are no QR codes to share.",
+        )
+        return
+
+    if len(bookings) == 1:
+        await _send_booking_qr_set(context, chat_id, bookings[0], on_date)
+        return
+
+    keyboard = today_bookings_keyboard(
+        bookings,
+        on_date=on_date,
+        callback_prefix=BOOKING_QR_CALLBACK_PREFIX,
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="You have more than one course today. Select which course's QR codes to send:",
+        reply_markup=keyboard,
+    )
+
+
+def _email_course_documents(personnel, booking):
+    from .booking_email import instructor_email_address
+    from .booking_notifications import notify_resend_email
+
+    address = instructor_email_address(personnel)
+    if not address:
+        return False, "No email address is saved on your profile, so the documents could not be sent."
+    sent = notify_resend_email(booking, recipient=personnel)
+    if not sent:
+        return False, "The course documents email could not be sent. Please try again."
+    course = getattr(booking.course_type, "name", "") or "Course"
+    ref = booking.course_reference or ""
+    label = f"{course} ({ref})" if ref else course
+    return True, f"Course documents for {label} have been emailed to {address}."
+
+
+async def email_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    personnel, chat_id = await _linked_personnel_or_reply(update)
+    if not personnel:
+        return
+
+    bookings = await sync_to_async(document_bookings_for_personnel)(personnel)
+    if not bookings:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="You have no upcoming courses to email documents for.",
+        )
+        return
+
+    if len(bookings) == 1:
+        ok, message = await sync_to_async(_email_course_documents)(personnel, bookings[0])
+        await context.bot.send_message(chat_id=chat_id, text=message)
+        return
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Which course should I email the documents for?",
+        reply_markup=documents_bookings_keyboard(bookings),
     )
 
 
@@ -1105,3 +1226,99 @@ async def booking_feedback_callback(update: Update, context: ContextTypes.DEFAUL
         form_kind="feedback",
         callback_prefix=BOOKING_FEEDBACK_CALLBACK_PREFIX,
     )
+
+
+async def booking_documents_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if not chat_id:
+        return
+
+    data = query.data
+    if not data.startswith(BOOKING_DOCS_CALLBACK_PREFIX):
+        await query.answer()
+        return
+
+    booking_id = data[len(BOOKING_DOCS_CALLBACK_PREFIX):]
+    if not booking_id:
+        await query.answer("Could not read that course.", show_alert=True)
+        return
+
+    await query.answer()
+
+    try:
+        personnel = await sync_to_async(personnel_for_chat_id)(str(chat_id))
+        if not personnel:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Account not linked. Use the QR code on your Pegasus profile.",
+            )
+            return
+
+        booking = await sync_to_async(booking_for_documents)(personnel, booking_id)
+        if not booking:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="That course was not found or is no longer available.",
+            )
+            return
+
+        ok, message = await sync_to_async(_email_course_documents)(personnel, booking)
+        await context.bot.send_message(chat_id=chat_id, text=message)
+    except Exception:
+        logger.exception("Telegram documents callback failed for %s", booking_id)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Sorry, something went wrong. Please try again.",
+        )
+
+
+async def booking_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if not chat_id:
+        return
+
+    data = query.data
+    if not data.startswith(BOOKING_QR_CALLBACK_PREFIX):
+        await query.answer()
+        return
+
+    booking_id = data[len(BOOKING_QR_CALLBACK_PREFIX):]
+    if not booking_id:
+        await query.answer("Could not read that course.", show_alert=True)
+        return
+
+    await query.answer()
+
+    try:
+        personnel = await sync_to_async(personnel_for_chat_id)(str(chat_id))
+        if not personnel:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Account not linked. Use the QR code on your Pegasus profile.",
+            )
+            return
+
+        on_date = timezone.localdate()
+        booking = await sync_to_async(booking_on_date_for_personnel)(personnel, booking_id, on_date)
+        if not booking:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="That course was not found or is no longer available.",
+            )
+            return
+
+        await _send_booking_qr_set(context, chat_id, booking, on_date)
+    except Exception:
+        logger.exception("Telegram QR codes callback failed for %s", booking_id)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Sorry, something went wrong. Please try again.",
+        )

@@ -44,6 +44,7 @@ def notify_instructor_via_email(
     buffer_minutes=None,
     morning_today=False,
     attach_pdf=True,
+    recipient=None,
 ) -> bool:
     """
     Email the booking instructor with HTML body and optional course pack PDF.
@@ -54,7 +55,7 @@ def notify_instructor_via_email(
     if not should_notify_booking(booking):
         return False
 
-    instructor = booking.instructor
+    instructor = recipient or booking.instructor
     to_addr = instructor_email_address(instructor)
     if not to_addr:
         return False

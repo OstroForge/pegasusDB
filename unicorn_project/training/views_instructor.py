@@ -54,6 +54,7 @@ from .utils.certificates import (
 )
 from .services.dummy_bookings import delete_dummy_booking_tree
 from .services.assessment_exams import (
+    attempts_for_booking,
     build_assessment_exam_matrix,
     recompute_delegate_outcome,
     recompute_outcomes_for_exam_attempt,
@@ -353,14 +354,42 @@ def _extract_line_items(post):
         tuples.append((d, amt))
     return tuples
 
+def _booking_for_attempt(attempt):
+    """Booking this attempt belongs to, including when a day instructor took it."""
+    booking = getattr(attempt, "booking", None)
+    if booking:
+        return booking
+    exam_date = getattr(attempt, "exam_date", None)
+    exam = getattr(attempt, "exam", None)
+    if not exam_date or not exam:
+        return None
+    day = (
+        BookingDay.objects.select_related("booking")
+        .filter(
+            booking__course_type_id=exam.course_type_id,
+            date=exam_date,
+        )
+        .filter(
+            Q(instructor_id=attempt.instructor_id)
+            | Q(instructor__isnull=True, booking__instructor_id=attempt.instructor_id)
+            | Q(booking__instructor_id=attempt.instructor_id)
+        )
+        .order_by("date")
+        .first()
+    )
+    return day.booking if day else None
+
+
 def _can_view_attempt(user, attempt) -> bool:
     if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
         return True
-    instr = getattr(user, "instructor", None)
+    instr = getattr(user, "personnel", None) or getattr(user, "instructor", None)
     if not instr:
         return False
-    a_instr_id = getattr(attempt, "instructor_id", None)
-    return (a_instr_id is None) or (a_instr_id == instr.id)
+    if attempt.instructor_id and attempt.instructor_id == instr.pk:
+        return True
+    booking = _booking_for_attempt(attempt)
+    return bool(booking and instructor_can_access_booking(instr, booking))
 
 def _display_name_for_attempt(attempt) -> str:
     for f in ("name", "delegate_name"):
@@ -405,18 +434,9 @@ def _back_url_for_attempt(request, attempt) -> str:
         return f"{reverse('instructor_booking_detail', kwargs={'pk': back})}?tab=exams"
 
     try:
-        day = (
-            BookingDay.objects.select_related("booking")
-            .filter(
-                booking__course_type=attempt.exam.course_type,
-                booking__instructor=attempt.instructor,
-                date=attempt.exam_date,
-            )
-            .order_by("date")
-            .first()
-        )
-        if day and day.booking_id:
-            return f"{reverse('instructor_booking_detail', args=[day.booking_id])}?tab=exams"
+        booking = _booking_for_attempt(attempt)
+        if booking:
+            return f"{reverse('instructor_booking_detail', args=[booking.pk])}?tab=exams"
     except Exception:
         pass
 
@@ -1732,19 +1752,9 @@ def _attempt_back_url(attempt):
     """
     try:
         from .models import BookingDay  # or the correct import path for BookingDay
-        day = (
-            BookingDay.objects
-            .select_related("booking")
-            .filter(
-                booking__course_type=attempt.exam.course_type,
-                booking__instructor=attempt.instructor,
-                date=attempt.exam_date or localdate(),
-            )
-            .order_by("date")
-            .first()
-        )
-        if day and day.booking_id:
-            return reverse("instructor_booking_detail", args=[day.booking_id])
+        booking = _booking_for_attempt(attempt)
+        if booking:
+            return reverse("instructor_booking_detail", args=[booking.pk])
     except Exception:
         pass
     return reverse("instructor_bookings")
@@ -1851,6 +1861,10 @@ def instructor_booking_detail(request, pk):
             counts_confirm = request.POST.get("delegate_counts_confirm") == "on"
             ass_manual = request.POST.get("assessment_send_separately") == "on"
             feedback_manual = request.POST.get("feedback_send_separately") == "on"
+            copy_documents = request.POST.get("copy_documents_to_instructor") == "on"
+            send_certificates = request.POST.get("send_certificates") == "on"
+            selected_cert_regs = cert_pass_delegates_for_booking(booking) if send_certificates else []
+            include_certificates = False
 
             day_counts = list(
                 BookingDay.objects
@@ -1958,7 +1972,9 @@ def instructor_booking_detail(request, pk):
 
             # 3️⃣ Certificates PDF ✅ SAFE FOR EMAIL
             try:
-                cert_result = build_certificates_pdf_for_booking(booking)
+                if not selected_cert_regs:
+                    raise ValueError("No certificates selected for admin")
+                cert_result = build_certificates_pdf_for_booking(booking, registers=selected_cert_regs)
 
                 # ✅ FORCE CORRECT ORDER NO MATTER WHAT THE FUNCTION RETURNS
                 if isinstance(cert_result, tuple) and len(cert_result) == 2:
@@ -1977,6 +1993,7 @@ def instructor_booking_detail(request, pk):
                     raise ValueError("Certificate generator returned invalid format")
 
                 pdf_files.append((cert_filename, cert_bytes))
+                include_certificates = True
                 print("Certificates PDF generated")
 
             except Exception as e:
@@ -2010,90 +2027,119 @@ def instructor_booking_detail(request, pk):
                 booking.date_completed = now()
                 booking.save(update_fields=["date_completed"])
             
+            def _person_email(person):
+                if not person:
+                    return ""
+                direct = (getattr(person, "email", "") or "").strip()
+                if direct:
+                    return direct
+                user = getattr(person, "user", None)
+                return (getattr(user, "email", "") or "").strip()
+
+            closer = getattr(request.user, "personnel", None)
+            instructor_copy_email = _person_email(closer) or _person_email(booking.instructor)
+            attached_lines = [" - Assessment Matrix", " - Registers"]
+            if include_certificates:
+                attached_lines.append(" - Certificates")
+            attached_lines.append(" - Feedback Summary")
+            attached_block = "\n".join(attached_lines)
+            if include_certificates:
+                cert_names = ", ".join(reg.certificate_display_name() for reg in selected_cert_regs)
+                cert_note = f"Certificates included for: {cert_names}\n"
+            else:
+                cert_note = "Certificates were not included.\n"
+
             dummy_closure_email_sent = False
             if booking.is_dummy_business:
-                try:
-                    import mimetypes
+                if copy_documents:
+                    try:
+                        import mimetypes
 
-                    instructor_email = (booking.instructor.email or "").strip()
-                    catch_all = (getattr(settings, "DEV_CATCH_ALL_EMAIL", "") or "").strip()
+                        instructor_email = instructor_copy_email
+                        catch_all = (getattr(settings, "DEV_CATCH_ALL_EMAIL", "") or "").strip()
 
-                    subject = f"[DUMMY] Course closure documents — {booking.course_type.name} ({booking.course_reference})"
-                    if settings.DEBUG and catch_all:
-                        to_recipients = [catch_all]
-                        effective_subject = (
-                            f"[DEV] {subject} "
-                            f"(Would send to instructor: {instructor_email or '(none configured)'})"
+                        subject = f"[DUMMY] Course closure documents — {booking.course_type.name} ({booking.course_reference})"
+                        if settings.DEBUG and catch_all:
+                            to_recipients = [catch_all]
+                            effective_subject = (
+                                f"[DEV] {subject} "
+                                f"(Would send to instructor: {instructor_email or '(none configured)'})"
+                            )
+                        else:
+                            if not instructor_email:
+                                raise ValueError("Instructor email is not configured for this dummy booking.")
+                            to_recipients = [instructor_email]
+                            effective_subject = subject
+
+                        body = (
+                            "Please find attached documents for the dummy / familiarisation course closure.\n\n"
+                            f"Course: {booking.course_type.name}\n"
+                            f"Business: {booking.business.name}\n"
+                            f"Reference: {booking.course_reference}\n"
+                            f"Closed on: {booking.date_completed.strftime('%Y-%m-%d %H:%M')}\n\n"
+                            "Attached documents:\n"
+                            f"{attached_block}\n\n"
+                            f"{cert_note}\n"
+                            "This is a dummy booking test email only. Admin closure email has been skipped.\n\n"
+                            "----------------------------------------\n"
+                            f"Instructor: {booking.instructor.name}\n"
+                            f"Email: {booking.instructor.email or '(none)'}\n"
                         )
-                    else:
-                        if not instructor_email:
-                            raise ValueError("Instructor email is not configured for this dummy booking.")
-                        to_recipients = [instructor_email]
-                        effective_subject = subject
 
-                    body = (
-                        "Please find attached documents for the dummy / familiarisation course closure.\n\n"
-                        f"Course: {booking.course_type.name}\n"
-                        f"Business: {booking.business.name}\n"
-                        f"Reference: {booking.course_reference}\n"
-                        f"Closed on: {booking.date_completed.strftime('%Y-%m-%d %H:%M')}\n\n"
-                        "Attached documents:\n"
-                        " - Assessment Matrix\n"
-                        " - Registers\n"
-                        " - Certificates\n"
-                        " - Feedback Summary\n\n"
-                        "This is a dummy booking test email only. Admin closure email has been skipped.\n\n"
-                        "----------------------------------------\n"
-                        f"Instructor: {booking.instructor.name}\n"
-                        f"Email: {booking.instructor.email or '(none)'}\n"
-                    )
+                        manual_lines = []
+                        if booking.course_registers_status in ("send_later", "separate"):
+                            manual_lines.append("Course registers will be submitted manually.")
+                        if booking.assessment_matrix_status in ("send_later", "separate"):
+                            manual_lines.append("Assessment matrix will be submitted manually.")
+                        if feedback_manual:
+                            manual_lines.append("Feedback will be submitted manually.")
+                        if manual_lines:
+                            body += "\nManual submissions to follow:\n" + "\n".join(f" - {ln}" for ln in manual_lines)
 
-                    manual_lines = []
-                    if booking.course_registers_status in ("send_later", "separate"):
-                        manual_lines.append("Course registers will be submitted manually.")
-                    if booking.assessment_matrix_status in ("send_later", "separate"):
-                        manual_lines.append("Assessment matrix will be submitted manually.")
-                    if feedback_manual:
-                        manual_lines.append("Feedback will be submitted manually.")
-                    if manual_lines:
-                        body += "\nManual submissions to follow:\n" + "\n".join(f" - {ln}" for ln in manual_lines)
+                        email = EmailMessage(
+                            subject=effective_subject,
+                            body=body,
+                            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@example.com"),
+                            to=to_recipients,
+                        )
 
-                    email = EmailMessage(
-                        subject=effective_subject,
-                        body=body,
-                        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@example.com"),
-                        to=to_recipients,
-                    )
+                        for filename, content in pdf_files:
+                            if isinstance(content, tuple):
+                                content = content[0]
+                            safe_filename = str(filename)
+                            mime = mimetypes.guess_type(safe_filename)[0] or "application/pdf"
+                            email.attach(safe_filename, content, mime)
 
-                    for filename, content in pdf_files:
-                        if isinstance(content, tuple):
-                            content = content[0]
-                        safe_filename = str(filename)
-                        mime = mimetypes.guess_type(safe_filename)[0] or "application/pdf"
-                        email.attach(safe_filename, content, mime)
+                        email.send(fail_silently=False)
+                        dummy_closure_email_sent = True
+                        print("Dummy closure email sent to instructor route")
 
-                    email.send(fail_silently=False)
-                    dummy_closure_email_sent = True
-                    print("Dummy closure email sent to instructor route")
-
-                except Exception as e:
-                    print("Dummy closure email failed:", e)
-                    messages.error(request, f"Dummy course closed, but instructor email failed: {e}")
+                    except Exception as e:
+                        print("Dummy closure email failed:", e)
+                        messages.error(request, f"Dummy course closed, but instructor email failed: {e}")
             else:
                 try:
                     import mimetypes
 
                     admin_email = getattr(settings, "ADMIN_INBOX_EMAIL", "")
-                    instructor_email = booking.instructor.email or ""
+                    instructor_email = instructor_copy_email if copy_documents else ""
                     catch_all = getattr(settings, "DEV_CATCH_ALL_EMAIL", "")
+                    copy_note = (
+                        "A copy of this email was sent to the instructor.\n"
+                        if copy_documents
+                        else "The instructor was not copied on this email.\n"
+                    )
 
                     subject = f"Course closure documents — {booking.course_type.name} ({booking.course_reference})"
 
                     if settings.DEBUG:
                         to_recipients = [catch_all]
+                        would_send = admin_email
+                        if instructor_email:
+                            would_send = f"{admin_email}, {instructor_email}"
                         effective_subject = (
                             f"[DEV] {subject}  "
-                            f"(Would send to: {admin_email}, {instructor_email})"
+                            f"(Would send to: {would_send})"
                         )
                         cc_recipients = []
                     else:
@@ -2101,6 +2147,7 @@ def instructor_booking_detail(request, pk):
                         cc_recipients = [instructor_email] if instructor_email else []
                         effective_subject = subject
 
+                    real_attached = attached_block.replace(" - ", " • ")
                     body = (
                         "Please find attached to this email documents relating to the below course.\n\n"
                         f"Course: {booking.course_type.name}\n"
@@ -2108,10 +2155,9 @@ def instructor_booking_detail(request, pk):
                         f"Reference: {booking.course_reference}\n"
                         f"Closed on: {booking.date_completed.strftime('%Y-%m-%d %H:%M')}\n\n"
                         "Attached documents:\n"
-                        " • Assessment Matrix\n"
-                        " • Registers\n"
-                        " • Certificates\n"
-                        " • Feedback Summary\n\n"
+                        f"{real_attached}\n\n"
+                        f"{cert_note}"
+                        f"{copy_note}\n"
                         "----------------------------------------\n"
                         f"Instructor: {booking.instructor.name}\n"
                         f"Email: {booking.instructor.email}\n"
@@ -2171,11 +2217,15 @@ def instructor_booking_detail(request, pk):
 
             if booking.is_dummy_business:
                 if dummy_closure_email_sent:
-                    messages.success(request, "✅ Dummy course closed. Documents emailed to instructor only (admin skipped).")
+                    messages.success(request, "✅ Dummy course closed. A copy of the documents was emailed to you.")
+                elif not copy_documents:
+                    messages.success(request, "✅ Dummy course closed. A copy of the documents was not emailed to you.")
                 else:
                     messages.success(request, "✅ Dummy course closed. Admin email was skipped.")
+            elif copy_documents:
+                messages.success(request, "✅ Course closed and documents emailed to admin. A copy was emailed to you.")
             else:
-                messages.success(request, "✅ Course closed and documents emailed to admin and instructor.")
+                messages.success(request, "✅ Course closed and documents emailed to admin. A copy was not emailed to you.")
             return redirect(f"{request.path}#closure-pane")
 
         # -------------------------------
@@ -2399,7 +2449,17 @@ def instructor_booking_detail(request, pk):
 
                 inv.save()
 
+                copy_invoice = request.POST.get("copy_invoice_to_instructor") == "on"
+
                 if booking.is_dummy_business:
+                    if not copy_invoice:
+                        inv.status = "sent"
+                        inv.date_sent = now()
+                        inv.save(update_fields=["status", "date_sent", "invoice_date", "instructor_ref", "account_name", "sort_code", "account_number"])
+                        messages.success(request, "Invoice submitted. A copy was not emailed to you.")
+                        return redirect(
+                            f"{reverse('instructor_booking_detail', kwargs={'pk': booking.pk})}?tab=invoicing"
+                        )
                     try:
                         file_bytes, filename = render_invoice_pdf_via_preview(request, booking)
                         attachments, link_lines = gather_receipt_attachments_and_links(booking)
@@ -2496,12 +2556,13 @@ def instructor_booking_detail(request, pk):
 
                     # Determine recipients
                     admin_real = getattr(settings, "ADMIN_INBOX_EMAIL", "")
-                    instr_real = getattr(booking.instructor, "email", "") or ""
+                    instr_real = (getattr(booking.instructor, "email", "") or "") if copy_invoice else ""
                     catch_all  = getattr(settings, "DEV_CATCH_ALL_EMAIL", "")
+                    would_send = admin_real if not instr_real else f"{admin_real}, {instr_real}"
 
                     if settings.DEBUG:
                         to_recipients = [catch_all]
-                        effective_subject = f"[DEV] {subj}  (Would send to: {admin_real}, {instr_real})"
+                        effective_subject = f"[DEV] {subj}  (Would send to: {would_send})"
                         cc_recipients = []
                     else:
                         to_recipients = [admin_real] if admin_real else []
@@ -2543,7 +2604,10 @@ def instructor_booking_detail(request, pk):
                     except:
                         pass
 
-                    messages.success(request, "Invoice emailed to admin successfully.")
+                    if copy_invoice:
+                        messages.success(request, "Invoice emailed to admin. A copy was emailed to you.")
+                    else:
+                        messages.success(request, "Invoice emailed to admin. A copy was not emailed to you.")
 
                 except Exception as e:
                     messages.error(request, f"Failed to send invoice: {e}")
@@ -2677,30 +2741,15 @@ def instructor_booking_detail(request, pk):
     has_exam = bool(course_exams) or getattr(booking.course_type, "has_exam", False)
 
     if course_exams:
-        booking_dates = list(
-            BookingDay.objects.filter(booking=booking).values_list("date", flat=True)
-        )
+        tmp = defaultdict(list)
+        attempts_qs = attempts_for_booking(booking)
+        for att in attempts_qs:
+            seq = getattr(att.exam, "sequence", None) or getattr(att.exam, "id")
+            tmp[seq].append(att)
 
-        if booking_dates:
-            tmp = defaultdict(list)
-            attempts_qs = (
-                ExamAttempt.objects
-                .select_related("exam")
-                .filter(
-                    exam__course_type=booking.course_type,
-                    instructor=booking.instructor,
-                    exam_date__in=booking_dates,
-                )
-                .order_by("exam_date", "id")
-            )
-
-            for att in attempts_qs:
-                seq = getattr(att.exam, "sequence", None) or getattr(att.exam, "id")
-                tmp[seq].append(att)
-
-            attempts_by_exam = dict(tmp)
-            completed_attempts = [a for a in attempts_qs if getattr(a, "finished_at", None)]
-            exam_wrong_summary_by_seq = _booking_exam_wrong_summary(course_exams, completed_attempts)
+        attempts_by_exam = dict(tmp)
+        completed_attempts = [a for a in attempts_qs if getattr(a, "finished_at", None)]
+        exam_wrong_summary_by_seq = _booking_exam_wrong_summary(course_exams, completed_attempts)
 
     ctx["course_exams"] = course_exams
     ctx["attempts_by_exam"] = attempts_by_exam
@@ -2902,6 +2951,19 @@ def instructor_booking_detail(request, pk):
         })
 
     ctx["gcal_links"] = gcal_links
+
+    from .utils.booking_notification_pdf import booking_qr_codes
+
+    qr_dates = [d.date for d in days]
+    today = timezone.localdate()
+    if today in qr_dates:
+        qr_on_date = today
+    else:
+        upcoming = [d for d in qr_dates if d > today]
+        qr_on_date = upcoming[0] if upcoming else (qr_dates[-1] if qr_dates else today)
+    ctx["course_qr_date"] = qr_on_date
+    ctx["course_qr_codes"] = booking_qr_codes(booking, on_date=qr_on_date)
+
     from .utils.communication_log import communication_log_entries, user_editable_booking_notes
 
     ctx["notes_form"] = BookingNotesForm(
@@ -2912,9 +2974,9 @@ def instructor_booking_detail(request, pk):
     except Exception:
         ctx["communication_log_entries"] = []
 
-    ctx["cert_delegates"] = (
-        cert_pass_delegates_for_booking(booking) if is_locked else []
-    )
+    passed_for_certificates = cert_pass_delegates_for_booking(booking)
+    ctx["closure_pass_delegates"] = passed_for_certificates
+    ctx["cert_delegates"] = passed_for_certificates if is_locked else []
 
     return render(request, "instructor/booking_detail.html", ctx)
 
@@ -5655,19 +5717,10 @@ def instructor_exams_summary_pdf(request, booking_id):
     if not instr or not instructor_can_access_booking(instr, booking):
         return HttpResponseForbidden("Not allowed.")
 
-    booking_dates = list(BookingDay.objects.filter(booking=booking).values_list("date", flat=True))
     course_exams = list(Exam.objects.filter(course_type=booking.course_type).order_by("sequence", "id"))
-    attempts_qs = list(
-        ExamAttempt.objects
-        .select_related("exam")
-        .filter(
-            exam__course_type=booking.course_type,
-            instructor=booking.instructor,
-            exam_date__in=booking_dates,
-            finished_at__isnull=False,
-        )
-        .order_by("exam__sequence", "exam_date", "delegate_name")
-    )
+    attempts_qs = [
+        att for att in attempts_for_booking(booking) if att.finished_at
+    ]
     summary_by_seq = _booking_exam_wrong_summary(course_exams, attempts_qs)
 
     buffer = io.BytesIO()

@@ -59,21 +59,38 @@ def exam_result_display(code: str) -> Tuple[str, str]:
 
 
 def attempts_for_booking(booking: Booking) -> List[ExamAttempt]:
+    """Attempts for this booking, including those taken with the day's instructor."""
     dates = list(
         BookingDay.objects.filter(booking=booking).values_list("date", flat=True)
     )
+    instructor_ids = set(
+        BookingDay.objects.filter(booking=booking)
+        .exclude(instructor_id__isnull=True)
+        .values_list("instructor_id", flat=True)
+    )
+    if booking.instructor_id:
+        instructor_ids.add(booking.instructor_id)
+
     scope = Q(booking=booking)
-    if dates:
-        scope |= Q(booking__isnull=True, exam_date__in=dates)
-    else:
-        scope |= Q(booking__isnull=True)
+    if dates and instructor_ids:
+        register_match = Q()
+        seen = set()
+        for name, dob in (
+            DelegateRegister.objects.filter(booking_day__booking=booking)
+            .values_list("name", "date_of_birth")
+            .distinct()
+        ):
+            key = ((name or "").casefold(), dob)
+            if key in seen:
+                continue
+            seen.add(key)
+            register_match |= Q(delegate_name__iexact=name, date_of_birth=dob)
+        if register_match:
+            scope |= Q(exam_date__in=dates, instructor_id__in=instructor_ids) & register_match
 
     return list(
-        ExamAttempt.objects.select_related("exam")
-        .filter(
-            exam__course_type=booking.course_type,
-            instructor=booking.instructor,
-        )
+        ExamAttempt.objects.select_related("exam", "instructor")
+        .filter(exam__course_type=booking.course_type)
         .filter(scope)
         .order_by("exam__sequence", "exam_date", "started_at", "pk")
     )
@@ -227,8 +244,11 @@ def recompute_outcomes_for_exam_attempt(attempt: ExamAttempt) -> None:
             BookingDay.objects.select_related("booking")
             .filter(
                 booking__course_type=attempt.exam.course_type,
-                booking__instructor=attempt.instructor,
                 date=attempt.exam_date,
+            )
+            .filter(
+                Q(instructor=attempt.instructor)
+                | Q(instructor__isnull=True, booking__instructor=attempt.instructor)
             )
             .order_by("date")
             .first()

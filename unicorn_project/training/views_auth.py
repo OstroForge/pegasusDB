@@ -14,14 +14,13 @@ from django.views.decorators.http import require_POST
 import hashlib
 import json
 import pyotp
-import qrcode
-import io
 import base64
 import secrets
 import time
 
 from unicorn_project.training.models import Personnel
 from unicorn_project.training.utils.passwords import send_initial_password_email
+from unicorn_project.training.utils.register_links import qr_png_bytes
 
 # Cookie name for trusted devices
 _TRUST_COOKIE = "2fa_trusted"
@@ -409,6 +408,16 @@ def forgot_password(request):
     return render(request, "registration/forgot_password.html")
 
 
+def _totp_setup_context(email, secret):
+    uri = pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name="Pegasus Training")
+    png = qr_png_bytes(uri)
+    return {
+        "provisioning_uri": uri,
+        "secret": secret,
+        "qr_data_url": "data:image/png;base64," + base64.b64encode(png).decode("ascii"),
+    }
+
+
 def two_factor_setup(request):
     """Setup 2FA for the logged-in user."""
     if not request.user.is_authenticated:
@@ -440,13 +449,7 @@ def two_factor_setup(request):
         if not confirm_code or len(confirm_code) != 6 or not confirm_code.isdigit():
             messages.error(request, "Please enter a valid 6-digit code.")
             # Regenerate QR for display
-            totp = pyotp.TOTP(temp_secret)
-            uri = totp.provisioning_uri(name=request.user.email, issuer_name="Pegasus Training")
-            context = {
-                'provisioning_uri': uri,
-                'secret': temp_secret,
-            }
-            return render(request, "two_factor/setup.html", context)
+            return render(request, "two_factor/setup.html", _totp_setup_context(request.user.email, temp_secret))
         
         # Verify the code with temp secret
         totp = pyotp.TOTP(temp_secret)
@@ -465,22 +468,10 @@ def two_factor_setup(request):
                 })
             else:
                 messages.error(request, "Invalid code. Please try again with the code displayed in your authenticator app.")
-                totp = pyotp.TOTP(temp_secret)
-                uri = totp.provisioning_uri(name=request.user.email, issuer_name="Pegasus Training")
-                context = {
-                    'provisioning_uri': uri,
-                    'secret': temp_secret,
-                }
-                return render(request, "two_factor/setup.html", context)
+                return render(request, "two_factor/setup.html", _totp_setup_context(request.user.email, temp_secret))
         except Exception as e:
             messages.error(request, f"Error verifying code: {str(e)}")
-            totp = pyotp.TOTP(temp_secret)
-            uri = totp.provisioning_uri(name=request.user.email, issuer_name="Pegasus Training")
-            context = {
-                'provisioning_uri': uri,
-                'secret': temp_secret,
-            }
-            return render(request, "two_factor/setup.html", context)
+            return render(request, "two_factor/setup.html", _totp_setup_context(request.user.email, temp_secret))
     
     # GET request - generate a new secret if not already in session
     temp_secret = request.session.get('2fa_temp_secret')
@@ -488,15 +479,7 @@ def two_factor_setup(request):
         temp_secret = pyotp.random_base32()
         request.session['2fa_temp_secret'] = temp_secret
     
-    # Generate provisioning URI for QR code
-    totp = pyotp.TOTP(temp_secret)
-    uri = totp.provisioning_uri(name=request.user.email, issuer_name="Pegasus Training")
-    
-    context = {
-        'provisioning_uri': uri,
-        'secret': temp_secret,
-    }
-    return render(request, "two_factor/setup.html", context)
+    return render(request, "two_factor/setup.html", _totp_setup_context(request.user.email, temp_secret))
 
 
 def two_factor_verify(request):

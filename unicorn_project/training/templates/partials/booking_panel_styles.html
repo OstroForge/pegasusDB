@@ -46,6 +46,46 @@
     font-size: 1.05rem;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
   }
+  .booking-panel-card--qr {
+    border-top: 3px solid #0f766e;
+    margin-top: 1rem;
+  }
+  .booking-panel-header--qr {
+    background: linear-gradient(180deg, #f0fdfa 0%, #ccfbf1 100%);
+  }
+  .booking-panel-header--qr .booking-panel-icon {
+    background: linear-gradient(180deg, rgba(15, 118, 110, 0.22), rgba(15, 118, 110, 0.1));
+    color: #0f766e;
+  }
+  .booking-qr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem 1.25rem;
+    align-items: start;
+  }
+  .booking-qr-tile {
+    text-align: center;
+    min-width: 0;
+  }
+  .booking-qr-link {
+    display: inline-block;
+    padding: 0.45rem;
+    border: 1px solid rgba(16, 24, 40, 0.08);
+    border-radius: 0.65rem;
+    background: #fff;
+    line-height: 0;
+  }
+  .booking-qr-link img {
+    width: 132px;
+    height: 132px;
+    max-width: 100%;
+  }
+  .booking-qr-title {
+    margin-top: 0.45rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1d2939;
+  }
   .booking-panel-card--information {
     border-top: 3px solid #198754;
   }

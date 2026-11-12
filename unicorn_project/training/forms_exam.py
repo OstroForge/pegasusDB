@@ -5,14 +5,34 @@ from django import forms
 from django.utils import timezone
 
 from .models import Personnel
+from .utils.names import title_case_person_name
 
 
 class DelegateExamStartForm(forms.Form):
     exam_code = forms.CharField(required=False, widget=forms.HiddenInput())
-    name = forms.CharField(
-        label="Your full name",
-        max_length=100,
-        widget=forms.TextInput(attrs={"class": "form-control", "autocomplete": "name"}),
+    first_name = forms.CharField(
+        label="First name",
+        max_length=50,
+        error_messages={"required": "Please enter your first name."},
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "autocomplete": "given-name",
+                "id": "id_first_name",
+            }
+        ),
+    )
+    surname = forms.CharField(
+        label="Surname",
+        max_length=50,
+        error_messages={"required": "Please enter your surname."},
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "autocomplete": "family-name",
+                "id": "id_surname",
+            }
+        ),
     )
     date_of_birth = forms.DateField(required=False, widget=forms.HiddenInput())
     dob_day = forms.CharField(
@@ -187,12 +207,12 @@ class DelegateExamStartForm(forms.Form):
             self.add_error(target_field, f"Please enter the {label}.")
         return None
 
-    def clean_name(self):
-        n = (self.cleaned_data.get("name") or "").strip()
-        return " ".join(w.capitalize() for w in n.split())
-
     def clean(self):
         cleaned_data = super().clean()
+        first = (cleaned_data.get("first_name") or "").strip()
+        surname = (cleaned_data.get("surname") or "").strip()
+        if first and surname:
+            cleaned_data["name"] = title_case_person_name(f"{first} {surname}")
 
         self._combine_partial_date(
             cleaned_data, "dob", "date_of_birth", required=True, label="date of birth"

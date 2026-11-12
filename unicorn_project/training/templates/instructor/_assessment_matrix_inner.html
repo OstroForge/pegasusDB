@@ -542,6 +542,9 @@ html[data-color-scheme="night"] .matrix-table tr.outcome-row .outcome-cell {
     if (window.__assessmentOptionalWarnShownInVisit) return;
     if (window.sessionStorage && window.sessionStorage.getItem(SKIP_WARN_ONCE_KEY) === '1') {
       window.sessionStorage.removeItem(SKIP_WARN_ONCE_KEY);
+      // Selecting a module reloads this tab. Treat that as the same visit so
+      // the prompt does not appear again until the instructor leaves and returns.
+      window.__assessmentOptionalWarnShownInVisit = true;
       return;
     }
     if (!requiredOptionalCount) return;

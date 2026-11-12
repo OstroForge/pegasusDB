@@ -8,8 +8,10 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 
 from .telegram_handlers import (
     booking_detail_callback,
+    booking_documents_callback,
     booking_feedback_callback,
     booking_pick_message,
+    booking_qr_callback,
     booking_register_callback,
     bookings_command,
     cancel_command,
@@ -20,10 +22,12 @@ from .telegram_handlers import (
     cover_request_message_callback,
     covers_command,
     directions_command,
+    email_command,
     feedback_command,
     help_command,
     menu_command,
     nextcourse_command,
+    qrcodes_command,
     registration_command,
     requestcover_command,
     settings_command,
@@ -42,7 +46,12 @@ from .telegram_course_swaps import (
 )
 from .telegram_menu import register_bot_commands
 from .telegram_settings import SETTINGS_CALLBACK_PREFIX
-from .telegram_today import BOOKING_FEEDBACK_CALLBACK_PREFIX, BOOKING_REGISTER_CALLBACK_PREFIX
+from .telegram_today import (
+    BOOKING_DOCS_CALLBACK_PREFIX,
+    BOOKING_FEEDBACK_CALLBACK_PREFIX,
+    BOOKING_QR_CALLBACK_PREFIX,
+    BOOKING_REGISTER_CALLBACK_PREFIX,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +102,9 @@ def build_application(*, for_polling: bool = False) -> Application:
     app.add_handler(CommandHandler("skip", skip_command))
     app.add_handler(CommandHandler("cancel", cancel_command))
     app.add_handler(CommandHandler("directions", directions_command))
+    app.add_handler(CommandHandler("email", email_command))
+    app.add_handler(CommandHandler("documents", email_command))
+    app.add_handler(CommandHandler("qrcodes", qrcodes_command))
     app.add_handler(CommandHandler("registration", registration_command))
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("settings", settings_command))
@@ -118,6 +130,8 @@ def build_application(*, for_polling: bool = False) -> Application:
         )
     )
     app.add_handler(CallbackQueryHandler(booking_register_callback, pattern=f"^{BOOKING_REGISTER_CALLBACK_PREFIX}"))
+    app.add_handler(CallbackQueryHandler(booking_qr_callback, pattern=f"^{BOOKING_QR_CALLBACK_PREFIX}"))
+    app.add_handler(CallbackQueryHandler(booking_documents_callback, pattern=f"^{BOOKING_DOCS_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(booking_feedback_callback, pattern=f"^{BOOKING_FEEDBACK_CALLBACK_PREFIX}"))
     app.add_handler(CallbackQueryHandler(settings_toggle_callback, pattern=f"^{SETTINGS_CALLBACK_PREFIX}"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, booking_pick_message))

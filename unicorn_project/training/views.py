@@ -110,17 +110,22 @@ def _instructors_for_course_date(course, day_date, *, dev_mode=None):
     if dev_mode is None:
         dev_mode = _register_dev_mode()
 
-    q_booking = Q(bookings__course_type=course, bookings__days__date=day_date)
     q_day = Q(
         booking_days__booking__course_type=course,
         booking_days__date=day_date,
     )
+    # The booking lead is listed only when that day has nobody else assigned.
+    q_lead_when_unset = Q(
+        bookings__course_type=course,
+        bookings__days__date=day_date,
+        bookings__days__instructor__isnull=True,
+    )
     if not dev_mode:
-        q_booking &= Q(bookings__status__in=_ACTIVE_BOOKING_STATUSES)
         q_day &= Q(booking_days__booking__status__in=_ACTIVE_BOOKING_STATUSES)
+        q_lead_when_unset &= Q(bookings__status__in=_ACTIVE_BOOKING_STATUSES)
 
     return (
-        Personnel.objects.filter(q_booking | q_day)
+        Personnel.objects.filter(q_day | q_lead_when_unset)
         .distinct()
         .order_by("name")
     )

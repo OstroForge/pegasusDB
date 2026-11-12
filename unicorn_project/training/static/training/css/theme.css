@@ -109,6 +109,69 @@ textarea {
   border-color: var(--app-input-border);
 }
 
+.form-check:not(.form-switch) .form-check-input {
+  width: 1.35em;
+  height: 1.35em;
+  margin-top: 0.15em;
+  border: 2px solid #0f172a;
+  background-color: #e8eef6;
+}
+
+.form-check:not(.form-switch) .form-check-input:checked {
+  background-color: #0d6efd;
+  border-color: #0b5ed7;
+}
+
+.form-check:not(.form-switch) .form-check-input:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.28);
+}
+
+html[data-color-scheme="night"] .form-check:not(.form-switch) .form-check-input {
+  border-color: #f8fafc;
+  background-color: #1e293b;
+}
+
+html[data-color-scheme="night"] .form-check:not(.form-switch) .form-check-input:checked {
+  background-color: #3b82f6;
+  border-color: #bfdbfe;
+}
+
+.form-check.form-switch:has(.form-check-input:not(.sidebar-night-toggle-input)) {
+  padding-left: 3.1em;
+  min-height: 1.7em;
+}
+
+.form-switch .form-check-input:not(.sidebar-night-toggle-input) {
+  width: 2.7em;
+  height: 1.45em;
+  margin-left: -3.1em;
+  margin-top: 0.05em;
+  border: 2px solid #475569;
+  background-color: #cbd5e1;
+  cursor: pointer;
+}
+
+.form-switch .form-check-input:not(.sidebar-night-toggle-input):checked {
+  background-color: #0d6efd;
+  border-color: #0b5ed7;
+}
+
+.form-switch .form-check-input:not(.sidebar-night-toggle-input):focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.28);
+}
+
+html[data-color-scheme="night"] .form-switch .form-check-input:not(.sidebar-night-toggle-input) {
+  border-color: #cbd5e1;
+  background-color: #334155;
+}
+
+html[data-color-scheme="night"] .form-switch .form-check-input:not(.sidebar-night-toggle-input):checked {
+  background-color: #3b82f6;
+  border-color: #bfdbfe;
+}
+
 .form-control:focus,
 .form-select:focus,
 textarea:focus {

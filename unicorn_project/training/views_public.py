@@ -98,6 +98,7 @@ def delegate_exam_start(request):
     show_exam_date = _show_exam_date_picker()
 
     can_continue = False
+    confirmed_name = ""
     initial_exam_date = _resolve_exam_date_from_request(
         request, default=timezone.localdate()
     )
@@ -119,8 +120,8 @@ def delegate_exam_start(request):
         )
         if form.is_valid():
             # Normalise inputs
-            raw_name = form.cleaned_data["name"]
-            name = " ".join(raw_name.split()).strip()
+            name = " ".join((form.cleaned_data.get("name") or "").split()).strip()
+            confirmed_name = name
             dob = form.cleaned_data["date_of_birth"]
             ex_date = form.cleaned_data["exam_date"]
             instructor = form.cleaned_data["instructor"]  # retained for flow
@@ -217,6 +218,7 @@ def delegate_exam_start(request):
         "course_type": course_type,
         "form": form,
         "can_continue": can_continue,
+        "confirmed_name": confirmed_name,
         "show_exam_date": show_exam_date,
         "exam_date": exam_date_for_filter,
         "instructors": instructors,
@@ -362,26 +364,34 @@ def _find_latest_attempt(exam, name, dob, instructor, exam_date):
 
 
 def _resolve_booking_for_attempt(exam, delegate_name, dob, instructor, exam_date):
-    if not instructor or not exam_date:
+    if not exam_date:
         return None
 
-    register = (
+    registers = (
         DelegateRegister.objects
-        .select_related("booking_day__booking")
+        .select_related("booking_day__booking", "booking_day__instructor")
         .filter(
             booking_day__booking__course_type=exam.course_type,
-            booking_day__booking__instructor=instructor,
             booking_day__date=exam_date,
             name__iexact=delegate_name,
             date_of_birth=dob,
         )
         .order_by("-created_at", "-id")
-        .first()
     )
+    if not instructor:
+        register = registers.first()
+        if not register or not register.booking_day_id:
+            return None
+        return register.booking_day.booking
 
-    if not register or not getattr(register, "booking_day", None):
-        return None
-    return register.booking_day.booking
+    for register in registers:
+        day = register.booking_day
+        if not day:
+            continue
+        teaching_id = day.instructor_id or day.booking.instructor_id
+        if teaching_id == getattr(instructor, "pk", instructor):
+            return day.booking
+    return None
 
 def _start_new_attempt(exam, name, dob, instructor, exam_date):
     """Create a fresh attempt and consume any pending retake authorisation."""

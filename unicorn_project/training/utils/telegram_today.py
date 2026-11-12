@@ -1,3 +1,4 @@
+import logging
 from html import escape
 from io import BytesIO
 from urllib.parse import urlencode
@@ -13,22 +14,79 @@ from .booking_details import _location_lines, google_maps_url_for_booking, prepe
 from .register_links import qr_png_bytes
 from .site_url import public_site_url
 
+logger = logging.getLogger(__name__)
+
 BOOKING_REGISTER_CALLBACK_PREFIX = "br:"
 BOOKING_FEEDBACK_CALLBACK_PREFIX = "bf:"
+BOOKING_QR_CALLBACK_PREFIX = "bqr:"
+BOOKING_DOCS_CALLBACK_PREFIX = "bdoc:"
 
 _ACTIVE_STATUSES = Q(status="scheduled") | Q(status="in_progress") | Q(status="awaiting_closure")
 
 
 def bookings_on_date_for_personnel(personnel, on_date=None):
     on_date = on_date or timezone.localdate()
+    delivering_today = Q(instructor=personnel) & (
+        Q(course_date=on_date) | Q(days__date=on_date)
+    )
+    teaching_this_day = Q(days__date=on_date, days__instructor=personnel)
     return (
-        Booking.objects.filter(instructor=personnel)
-        .filter(_ACTIVE_STATUSES)
-        .filter(Q(course_date=on_date) | Q(days__date=on_date))
+        Booking.objects.filter(_ACTIVE_STATUSES)
+        .filter(delivering_today | teaching_this_day)
+        .distinct()
+        .select_related("course_type", "business", "training_location", "instructor")
+        .prefetch_related("days", "days__instructor")
+        .order_by("start_time", "course_date")
+    )
+
+
+def booking_on_date_for_personnel(personnel, booking_id, on_date=None):
+    if booking_id is None or booking_id == "":
+        return None
+    return bookings_on_date_for_personnel(personnel, on_date).filter(pk=booking_id).first()
+
+
+def document_bookings_for_personnel(personnel, *, limit=10):
+    """Upcoming courses this person leads or is delivering a day of."""
+    today = timezone.localdate()
+    return list(
+        Booking.objects.filter(_ACTIVE_STATUSES)
+        .filter(Q(instructor=personnel) | Q(days__instructor=personnel))
+        .filter(Q(course_date__gte=today) | Q(days__date__gte=today))
         .distinct()
         .select_related("course_type", "business", "training_location", "instructor")
         .prefetch_related("days")
-        .order_by("start_time", "course_date")
+        .order_by("course_date", "start_time")[:limit]
+    )
+
+
+def documents_bookings_keyboard(bookings):
+    rows = []
+    for booking in bookings:
+        course = getattr(booking.course_type, "name", "") or "Course"
+        when = booking.course_date.strftime("%d %b") if booking.course_date else ""
+        label = f"{course} · {when}" if when else course
+        if len(label) > 64:
+            label = label[:61] + "…"
+        rows.append([
+            InlineKeyboardButton(
+                label,
+                callback_data=f"{BOOKING_DOCS_CALLBACK_PREFIX}{booking.pk}",
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+def booking_for_documents(personnel, booking_id):
+    if booking_id is None or booking_id == "":
+        return None
+    return (
+        Booking.objects.filter(_ACTIVE_STATUSES)
+        .filter(pk=booking_id)
+        .filter(Q(instructor=personnel) | Q(days__instructor=personnel))
+        .select_related("course_type", "business", "training_location", "instructor", "instructor__user")
+        .prefetch_related("days")
+        .first()
     )
 
 
@@ -120,7 +178,7 @@ def format_today_message(bookings, on_date=None, *, section_title="Today"):
 
         lines.append("")
 
-    lines.append("/registration · /feedback · /directions")
+    lines.append("/qrcodes · /registration · /feedback · /directions")
     body = "\n".join(lines).strip()
     if any(getattr(b, "is_dummy_business", False) for b in bookings) or settings.DEBUG:
         return prepend_notification_disclaimer(body, bookings[0])
@@ -234,3 +292,73 @@ def feedback_qr_photo_and_caption(booking, on_date=None):
 
 def telegram_qr_input_file(png_bytes, filename="qr.png"):
     return InputFile(BytesIO(png_bytes), filename=filename)
+
+
+def qr_open_keyboard(title: str, url: str) -> InlineKeyboardMarkup | None:
+    """Button under a QR photo that opens the same address the code encodes."""
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return None
+    label = f"Open {title}".strip() or "Open"
+    if len(label) > 64:
+        label = label[:61] + "…"
+    return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=url)]])
+
+
+def list_booking_qr_photos(booking, on_date=None):
+    """
+    QR photos for this course day: registration, feedback, accident reports
+    and exams when the course uses them.
+    """
+    from .booking_notification_pdf import booking_qr_codes
+
+    on_date = on_date or timezone.localdate()
+    photos = []
+    for index, entry in enumerate(booking_qr_codes(booking, on_date=on_date), start=1):
+        title = entry.get("title") or "QR code"
+        url = (entry.get("url") or "").strip()
+        png = entry.get("image_bytes")
+        if not url or not png:
+            continue
+        photos.append({
+            "title": title,
+            "url": url,
+            "png": png,
+            "caption": _form_caption(title=title, booking=booking, on_date=on_date, url=url),
+            "filename": f"course-qr-{index}.png",
+            "reply_markup": qr_open_keyboard(title, url),
+        })
+    return photos
+
+
+def format_qr_followup_message(booking) -> str:
+    course = escape(getattr(booking.course_type, "name", "") or "Course")
+    return (
+        f"<b>Delegate QR codes</b> for {course} today. "
+        "Tap <b>Open</b> on a code to open that form."
+    )
+
+
+def send_booking_qr_photos(chat_id, booking, on_date=None) -> int:
+    """Push each course QR to a Telegram chat. Returns how many were sent."""
+    from .telegram_client import send_telegram_photo
+
+    sent = 0
+    for photo in list_booking_qr_photos(booking, on_date):
+        message, error = send_telegram_photo(
+            chat_id,
+            photo["png"],
+            caption=photo["caption"],
+            filename=photo["filename"],
+            reply_markup=photo["reply_markup"],
+        )
+        if message is None:
+            logger.warning(
+                "QR photo %s was not sent to %s: %s",
+                photo["title"],
+                chat_id,
+                error or "unknown error",
+            )
+            continue
+        sent += 1
+    return sent

@@ -27,7 +27,7 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="edit-details-btn">Edit details</button>
         <form method="get" action="{% url 'delegate_exam_rules' %}" class="d-inline">
           <input type="hidden" name="examcode" value="{{ exam.exam_code }}">
-          <input type="hidden" name="name" value="{{ form.name.value|default_if_none:'' }}">
+          <input type="hidden" name="name" value="{{ confirmed_name }}">
           <input type="hidden" name="date_of_birth" value="{{ form.date_of_birth.value|default_if_none:'' }}">
           <input type="hidden" name="instructor" value="{{ form.instructor.value|default_if_none:'' }}">
           <input type="hidden" name="exam_date" value="{{ form.exam_date.value|default_if_none:'' }}">
@@ -82,12 +82,18 @@
     <div class="exam-section">
       <div class="exam-section-title">Your details</div>
       <div class="row g-3">
-        <div class="col-12">
+        <div class="col-12 col-sm-6">
           <div class="exam-field">
-            <label class="form-label" for="{{ form.name.id_for_label }}">Your full name</label>
-            {{ form.name }}
-            <div class="form-text">Enter your name exactly as on the register.</div>
-            {% for e in form.name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+            <label class="form-label" for="id_first_name">First name</label>
+            {{ form.first_name }}
+            {% for e in form.first_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+        </div>
+        <div class="col-12 col-sm-6">
+          <div class="exam-field">
+            <label class="form-label" for="id_surname">Surname</label>
+            {{ form.surname }}
+            {% for e in form.surname.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
           </div>
         </div>
         <div class="col-12">

@@ -1,11 +1,9 @@
 import asyncio
 import base64
-import io
 import json
 import logging
 import secrets
 
-import qrcode
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -15,6 +13,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .models import Personnel
+from .utils.register_links import qr_png_bytes
 from .utils.telegram_bot import process_webhook_update
 from .utils.telegram_link import create_link_token
 
@@ -64,10 +63,7 @@ def telegram_link_token(request):
     token = create_link_token(personnel.pk)
     deep_link = f"https://t.me/{bot_username}?start={token}"
 
-    qr = qrcode.make(deep_link)
-    buffer = io.BytesIO()
-    qr.save(buffer, format="PNG")
-    qr_data_url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    qr_data_url = "data:image/png;base64," + base64.b64encode(qr_png_bytes(deep_link)).decode("ascii")
 
     return JsonResponse(
         {

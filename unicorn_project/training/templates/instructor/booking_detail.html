@@ -300,10 +300,13 @@
 
           </div>
 
-          {# MIDDLE COLUMN (CALENDAR + RESEND) -------------------------------- #}
-          <div class="col-lg-4 d-flex flex-column gap-3 booking-summary-col">
+          {# CALENDAR + NOTES, with QR codes spanning both -------------------- #}
+          <div class="col-lg-8 d-flex flex-column gap-3">
+            <div class="row g-3 g-lg-4 align-items-stretch">
 
-            <div class="card booking-panel-card booking-panel-card--calendar mb-0 d-flex flex-column">
+            <div class="col-lg-6 d-flex flex-column gap-3 booking-summary-col">
+
+            <div class="card booking-panel-card booking-panel-card--calendar mb-0 d-flex flex-column flex-grow-1">
               <div class="card-header booking-panel-header booking-panel-header--calendar d-flex align-items-center">
                 <span class="booking-panel-icon" aria-hidden="true"><i class="bi bi-calendar3"></i></span>
                 <span class="booking-panel-title">Calendar</span>
@@ -379,12 +382,10 @@
               </div>
             </div>
 
-            {% include "partials/booking_telegram_resend.html" with telegram_send_url_name="instructor_booking_telegram_send" email_send_url_name="instructor_booking_email_send" stacked=True %}
+            </div>
 
-          </div>
-
-          {# RIGHT COLUMN (NOTES + LOG) ---------------------------------------- #}
-          <div class="col-lg-4 d-flex flex-column gap-3 booking-summary-col">
+          {# RIGHT COLUMN (NOTES) ---------------------------------------------- #}
+          <div class="col-lg-6 d-flex flex-column gap-3 booking-summary-col">
 
             <div class="card booking-panel-card booking-panel-card--notes booking-notes-card flex-grow-1 mb-0 d-flex flex-column">
               <div class="card-header booking-panel-header booking-panel-header--notes d-flex align-items-center justify-content-between py-2">
@@ -440,7 +441,42 @@
               </div>
             </div>
 
-            {% include "partials/booking_communication_log.html" with stacked=True %}
+            </div>
+            </div>
+
+            {% if course_qr_codes %}
+            <div class="card booking-panel-card booking-panel-card--qr mb-0">
+              <div class="card-header booking-panel-header booking-panel-header--qr d-flex align-items-center">
+                <span class="booking-panel-icon" aria-hidden="true"><i class="bi bi-qr-code"></i></span>
+                <span class="booking-panel-title">QR codes</span>
+              </div>
+              <div class="card-body">
+                <p class="text-muted small mb-3">
+                  Registration and feedback open this course on {{ course_qr_date|date:"j M Y" }}.
+                  Accident reports and exams are included when this course uses them.
+                </p>
+                <div class="booking-qr-grid">
+                  {% for qr in course_qr_codes %}
+                  <div class="booking-qr-tile">
+                    <a href="{{ qr.url }}" target="_blank" rel="noopener" class="booking-qr-link">
+                      <img src="{{ qr.image_data_uri }}" alt="{{ qr.title }}">
+                    </a>
+                    <div class="booking-qr-title">{{ qr.title }}</div>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            {% endif %}
+
+            <div class="row g-3 g-lg-4">
+              <div class="col-lg-6">
+                {% include "partials/booking_telegram_resend.html" with telegram_send_url_name="instructor_booking_telegram_send" email_send_url_name="instructor_booking_email_send" stacked=True %}
+              </div>
+              <div class="col-lg-6">
+                {% include "partials/booking_communication_log.html" with stacked=True %}
+              </div>
+            </div>
 
           </div>
         </div>
@@ -1113,8 +1149,8 @@
               <strong>{{ d.date|date:"j M Y" }}</strong>{% if not forloop.last %}, {% endif %}
             {% endfor %}
           </div>
-          <div class="form-check">
-            <input class="form-check-input closure-check" type="checkbox" id="registers_send_separately" name="registers_send_separately">
+          <div class="form-check form-switch">
+            <input class="form-check-input closure-check" type="checkbox" role="switch" id="registers_send_separately" name="registers_send_separately">
             <label class="form-check-label" for="registers_send_separately">
               Registers for missing day(s) will be submitted separately (paper copy completed).
             </label>
@@ -1123,8 +1159,8 @@
           <div class="alert alert-warning py-2">
             Delegate counts differ across days. Confirm this is correct (for example absences/sickness).
           </div>
-          <div class="form-check">
-            <input class="form-check-input closure-check" type="checkbox" id="delegate_counts_confirm" name="delegate_counts_confirm">
+          <div class="form-check form-switch">
+            <input class="form-check-input closure-check" type="checkbox" role="switch" id="delegate_counts_confirm" name="delegate_counts_confirm">
             <label class="form-check-label" for="delegate_counts_confirm">
               I confirm the differing delegate counts are accurate.
             </label>
@@ -1150,8 +1186,8 @@
               <div class="text-muted">...and {{ closure_pending_outcomes|length|add:"-12" }} more</div>
             {% endif %}
           </div>
-          <div class="form-check">
-            <input class="form-check-input closure-check" type="checkbox" id="assessment_send_separately" name="assessment_send_separately">
+          <div class="form-check form-switch">
+            <input class="form-check-input closure-check" type="checkbox" role="switch" id="assessment_send_separately" name="assessment_send_separately">
             <label class="form-check-label" for="assessment_send_separately">
               Assessment matrix will be submitted separately (paper copy completed).
             </label>
@@ -1169,8 +1205,8 @@
           <div class="alert alert-warning py-2">
             No feedback has been submitted for this course yet.
           </div>
-          <div class="form-check">
-            <input class="form-check-input closure-check" type="checkbox" id="feedback_send_separately" name="feedback_send_separately">
+          <div class="form-check form-switch">
+            <input class="form-check-input closure-check" type="checkbox" role="switch" id="feedback_send_separately" name="feedback_send_separately">
             <label class="form-check-label" for="feedback_send_separately">
               Feedback will be submitted separately.
             </label>
@@ -1181,6 +1217,32 @@
           </div>
         {% endif %}
       </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header"><strong>4. Certificates to admin</strong></div>
+      <div class="card-body">
+        {% if closure_pass_delegates %}
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" name="send_certificates" id="send_certificates">
+            <label class="form-check-label" for="send_certificates">
+              Include certificates for every delegate who passed
+            </label>
+          </div>
+          <div class="small text-muted mt-2">
+            {% for reg in closure_pass_delegates %}{{ reg.certificate_display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">No delegates have passed, so there are no certificates to send.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" role="switch" id="copy_documents_to_instructor" name="copy_documents_to_instructor" checked>
+      <label class="form-check-label" for="copy_documents_to_instructor">
+        Email me a copy of these documents
+      </label>
     </div>
 
     <button type="submit" class="btn btn-danger" id="close-course-btn" {% if not can_close_course %}disabled{% endif %}>
